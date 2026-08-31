@@ -70,7 +70,7 @@ class BrotherQLRaster(object):
 
     def add_invalidate(self):
         """ clear command buffer """
-        self.data += b'\x00' * 200
+        self.data += b'\x00' * 100
 
     @property
     def mtype(self): return self._mtype
@@ -86,7 +86,7 @@ class BrotherQLRaster(object):
 
     @mtype.setter
     def mtype(self, value):
-        self._mtype = bytes([value & 0xFF])
+        self._mtype = None if value is None else bytes([value & 0xFF])
 
     @mwidth.setter
     def mwidth(self, value):
@@ -124,7 +124,7 @@ class BrotherQLRaster(object):
         flags = 0x00
         flags |= self.half_cut << 2
         flags |= self.no_chain_printing << 3
-        flags |= self.hires << 5
+        flags |= self.hires << 6
         self.data += bytes([flags])
 
     def add_margins(self, dots=0x23):

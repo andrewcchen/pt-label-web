@@ -13,7 +13,3 @@ class LabelContent(Enum):
 class LabelOrientation(Enum):
     STANDARD = auto()
     ROTATED = auto()
-
-
-class LabelType(Enum):
-    ENDLESS_LABEL = auto()

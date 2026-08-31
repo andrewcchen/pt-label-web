@@ -86,7 +86,6 @@ function setFontSettingsPerLine() {
         font: $('#font option:selected').val() || DEFAULT_FONT,
         size: $('#font_size').val(),
         inverted: $('#font_inverted').is(':checked'),
-        checkbox: $('#font_checkbox').is(':checked'),
         align: $('input[name=font_align]:checked').val() || 'center',
         line_spacing: $('input[name=line_spacing]:checked').val() || '100'
     };
@@ -167,8 +166,6 @@ $(document).ready(function () {
         $('input[name=line_spacing][value="' + fs.line_spacing + '"]').prop('checked', true).trigger("change");
         // Set font inversion
         $('#font_inverted').prop('checked', fs.inverted);
-        // Set checkbox item
-        $('#font_checkbox').prop('checked', fs.checkbox);
     });
 
     // When the user changes the caret/selection in the textarea, update #lineSelect and font controls
@@ -247,19 +244,35 @@ function formData(cut_once = false) {
 }
 
 function get_dpi() {
-    return $('#high_res').is(':checked') ? 600 : 300;
+    return $('#high_res').is(':checked') ? default_dpi * 2 : default_dpi;
+}
+
+function sizePreview(img) {
+    const availableWidth = img.parentElement.clientWidth - 2;
+    const scale = Math.min(128 / img.naturalHeight, availableWidth / img.naturalWidth);
+    img.style.width = `${img.naturalWidth * scale}px`;
+    img.style.height = `${img.naturalHeight * scale}px`;
 }
 
 function updatePreview(data) {
     $('#previewImg').attr('src', 'data:image/png;base64,' + data);
     var img = $('#previewImg')[0];
     img.onload = function () {
+        sizePreview(img);
         $('#labelWidth').html((img.naturalWidth / get_dpi() * 2.54).toFixed(1));
         $('#labelHeight').html((img.naturalHeight / get_dpi() * 2.54).toFixed(1));
     };
 }
 
+window.addEventListener('resize', function () {
+    const img = $('#previewImg')[0];
+    if (img && img.naturalWidth) {
+        sizePreview(img);
+    }
+});
+
 var lastPreviewData = null;
+var pendingDropZoneData = null;
 function gen_label(preview = true, cut_once = false) {
     // Check label against installed label in the printer
     updatePrinterStatus();
@@ -274,12 +287,15 @@ function gen_label(preview = true, cut_once = false) {
         $('#groupLabelImage').hide();
     }
 
-    // Update status box
     let type = preview ? 'preview' : 'printing';
-    setStatus({ type: type, 'status': 'pending' });
+
+    // Capture the request before asynchronous image processing starts.
+    const data = formData(cut_once);
 
     // Process image upload
     if ($('input[name=print_type]:checked').val() == 'image') {
+        setStatus({ type: type, 'status': 'pending' });
+        pendingDropZoneData = data;
         dropZoneMode = preview ? 'preview' : 'printing';
         imageDropZone.processQueue();
         return;
@@ -287,14 +303,19 @@ function gen_label(preview = true, cut_once = false) {
 
     // Get data and compare to the last preview generation, return if nothing
     // has changed
-    const data = formData(cut_once);
     const dataJson = JSON.stringify(data);
     if (preview && dataJson === lastPreviewData) {
         console.debug("No changes detected, not generating new preview.");
         return;
     }
-    // Update lastPreviewData
-    lastPreviewData = dataJson;
+    // Keep preview caching separate from printing. A print must not affect
+    // whether a later preview is generated.
+    if (preview) {
+        lastPreviewData = dataJson;
+    }
+
+    // Update status box
+    setStatus({ type: type, 'status': 'pending' });
 
     // Send printing request
     const url = preview ? (url_for_preview + '?return_format=base64') : url_for_print;
@@ -302,7 +323,7 @@ function gen_label(preview = true, cut_once = false) {
         type: 'POST',
         url: url,
         contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
-        data: formData(cut_once),
+        data: data,
         success: function (data) {
             // Check if response is JSON and has a key "success"
             const status = typeof data === "object" &&
@@ -311,7 +332,9 @@ function gen_label(preview = true, cut_once = false) {
                 data.success === false ?
                 'error' : 'success';
             setStatus({ type: type, 'status': status });
-            updatePreview(data);
+            if (preview) {
+                updatePreview(data);
+            }
         },
         error: function (xhr, _status, error) {
             message = xhr.responseJSON ? xhr.responseJSON.message : error;
@@ -441,7 +464,7 @@ new Dropzone("#image-dropzone", {
 
     sending: function (file, xhr, data) {
         // append all parameters to the request
-        let fd = formData(false);
+        let fd = pendingDropZoneData || formData(false);
 
         $.each(fd, function (key, value) {
             data.append(key, value);
@@ -490,7 +513,7 @@ function toggleQrSettings() {
 
 function get_barcode_types() {
     // Populate barcode select menu from /api/barcodes
-    fetch(url_for_get_barcodes)
+    return fetch(url_for_get_barcodes)
         .then(response => response.json())
         .then(data => {
             const select = document.getElementById('barcode_type');
@@ -518,18 +541,8 @@ function get_barcode_types() {
 
 function updatePrinterStatus() {
     const labelSizeX = document.getElementById('label-width');
-    const labelSizeY = document.getElementById('label-height');
-    if (labelSizeX && labelSizeY) {
+    if (labelSizeX) {
         labelSizeX.textContent = (printer_status.media_width ?? "???") + " mm";
-        if (printer_status.media_length > 0) {
-            labelSizeY.textContent = printer_status.media_length + " mm";
-        }
-        else if (printer_status.media_type === 'Continuous length tape') {
-            labelSizeY.textContent = "endless";
-        }
-        else {
-            labelSizeY.textContent = "???";
-        }
     }
 
     // Check for label size mismatch compared to data-x property of select
@@ -555,6 +568,24 @@ function updatePrinterStatus() {
     else {
         // Clear printer errors
         setStatus({ type: 'status', status: 'success' });
+    }
+}
+
+function selectDetectedLabelSize() {
+    if (printer_status.media_width === null) return;
+
+    let prefix = 'tze';
+    if (printer_status.media_type === 'Heat-Shrink Tube (HS 2:1)') prefix = 'hse2-';
+    if (printer_status.media_type === 'Heat-Shrink Tube (HS 3:1)') prefix = 'hse3-';
+
+    const select = document.getElementById('label_size');
+    const detected = Array.from(select.options).find(option =>
+        option.value.startsWith(prefix) &&
+        Number(option.getAttribute('data-x')) === Number(printer_status.media_width)
+    );
+    if (detected && select.value !== detected.value) {
+        select.value = detected.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
     }
 }
 
@@ -593,6 +624,7 @@ async function getPrinterStatus() {
     } else {
         printer_status = data;
     }
+    selectDetectedLabelSize();
     updatePrinterStatus();
 }
 
@@ -1072,12 +1104,10 @@ function set_all_inputs_default(force = false) {
 
 window.onload = async function () {
     // Get supported barcodes
-    get_barcode_types();
+    await get_barcode_types();
 
-    // Get printer status once ...
-    getPrinterStatus();
-    // ... and update it every 5 seconds
-    setInterval(getPrinterStatus, 5000);
+    // Detect the installed tape once after restoring the page settings.
+    await getPrinterStatus();
 }
 
 function init2() {

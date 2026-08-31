@@ -8,6 +8,7 @@ This is a web service to print labels on Brother P-touch printers.
 import os
 import sys
 import argparse
+import logging
 
 from flask import Flask
 from brother_ql.models import ALL_MODELS
@@ -25,6 +26,7 @@ def create_app(config_class=Config) -> Flask:
     app.config.from_pyfile('application.py', silent=True)
 
     app.logger.setLevel(app.config.get('LOG_LEVEL', 'INFO'))
+    logging.getLogger(__name__).setLevel(app.config.get('LOG_LEVEL', 'INFO'))
 
     FONTS = init_fonts(app)
 
@@ -60,7 +62,7 @@ def parse_args(app):
     models = [model.identifier for model in ALL_MODELS]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--default-label-size', default=os.getenv('LABEL_DEFAULT_SIZE', app.config['LABEL_DEFAULT_SIZE']),
-                        help='Tape size inserted in your printer. Defaults to pt24.')
+                        help='Tape size inserted in your printer. Defaults to tze24.')
     parser.add_argument('--default-orientation', default=os.getenv('LABEL_DEFAULT_ORIENTATION', app.config['LABEL_DEFAULT_ORIENTATION']), choices=('standard', 'rotated'),
                         help='Label orientation, defaults to "standard". To turn your text by 90°, state "rotated".')
     parser.add_argument('--model', default=os.getenv('PRINTER_MODEL', app.config['PRINTER_MODEL']), choices=models,

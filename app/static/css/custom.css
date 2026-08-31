@@ -16,6 +16,32 @@ textarea#label_text {
     resize: none;
 }
 
+.label-preview-panel {
+    width: 100%;
+}
+
+.label-preview-frame {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    min-height: 80px;
+    overflow: auto;
+    padding: 8px 1px;
+    width: 100%;
+}
+
+#previewImg {
+    border: 1px solid #dc3545;
+    box-sizing: border-box;
+    display: block;
+    height: auto;
+    image-rendering: pixelated;
+    width: auto;
+}
+
+.roundPreviewImage {
+    border-radius: 100%;
+}
 label {
     font-weight: 700;
 }

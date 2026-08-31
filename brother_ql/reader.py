@@ -190,6 +190,7 @@ def interpret_response(data):
 
     media_code = data[11]
     media_sensor = data[14]
+    media_type = 'Unknown'
     media_category = ""
     if media_code in RESP_MEDIA_TYPES:
         media_type = RESP_MEDIA_TYPES[media_code]
@@ -206,6 +207,7 @@ def interpret_response(data):
     text_color = RESP_TEXT_COLORS.get(text_color_code, 'Unknown')
 
     status_code = data[18]
+    status_type = 'Unknown'
     if status_code in RESP_STATUS_TYPES:
         status_type = RESP_STATUS_TYPES[status_code]
         logger.debug("Status type: %s", status_type)
@@ -213,7 +215,7 @@ def interpret_response(data):
         logger.error("Unknown status type %02X", status_code)
 
     phase_code = data[19]
-    phase_type = ''
+    phase_type = 'Unknown'
     if phase_code in RESP_PHASE_TYPES:
         phase_type = RESP_PHASE_TYPES[phase_code]
         logger.debug("Phase type: %s", phase_type)

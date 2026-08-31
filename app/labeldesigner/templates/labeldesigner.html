@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 
 {% block app_content %}
+<div class="row mb-3">
+    <div class="col-12">
+        <fieldset class="label-preview-panel">
+            <label for="previewImg" style="margin-bottom: 0">Label Preview:</label>
+            <div class="label-preview-frame">
+                <img id="previewImg" />
+            </div>
+            <p class="mb-0">Printed size: <span id="labelWidth">?</span> cm x <span id="labelHeight">?</span> cm</p>
+        </fieldset>
+    </div>
+</div>
 <div class="row">
     <!-- Settings buttons only (dark mode toggle moved to navbar) -->
     <div style="position: absolute; top: 10px; right: 20px; z-index: 1000; display: flex; gap: 10px; align-items: center;">
@@ -29,7 +40,7 @@
                                     data-y="0" {% if default_label_size==label_size[0]
                                     %}selected{% endif %}>{{label_size[1]}}{% if debug %} ({{label_size[3]}}px){% endif %}</option>{% endfor %}
                             </select>
-                            <div class="form-text text-muted">Detected label: <span id="label-width">???</span> x <span id="label-height">???</span></div>
+                            <div class="form-text text-muted">Detected label: <span id="label-width">???</span></div>
                             <div id="labelMismatch" class="form-text text-danger" style="display: none;">Label size mismatch detected!</div>
 
                             <label for="orientation" class="form-label input-group" style="margin-top: 10px; margin-bottom: 0">Label Orientation:</label>
@@ -44,9 +55,9 @@
                                 </label>
                             </div>
                                 <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" onchange="preview()" id="high_res" data-default="0">
+                                <input class="form-check-input" type="checkbox" onchange="preview()" id="high_res" data-default="{{ 1 if default_high_res else 0 }}" {% if default_high_res %}checked{% endif %}>
                                 <label class="form-check-label" for="high_res">
-                                    High-resolution printing (600 dpi)
+                                    High-resolution printing
                                 </label>
                             </div>
                         </div>
@@ -123,12 +134,6 @@
                                         <input class="form-check-input" type="checkbox" onchange="preview()" id="font_inverted" data-default="0">
                                         <label class="form-check-label" for="font_inverted">
                                             Invert text
-                                        </label>
-                                    </div>
-                                    <div class="form-check mb-2">
-                                        <input class="form-check-input" type="checkbox" onchange="preview()" id="font_checkbox" data-default="0">
-                                        <label class="form-check-label" for="font_checkbox">
-                                            TODO item (checkbox)
                                         </label>
                                     </div>
                                 </div>
@@ -388,10 +393,6 @@
     </div>
     <div class="col-md-4">
     <fieldset>
-        <label for="previewImg" style="margin-bottom: 0">Label Preview:</label><br />
-        <img id="previewImg" style="max-height: 350px; width: auto; max-width: 100%; display: block; margin-bottom: 1em;" />
-        <p>Printed size: <span id="labelWidth">?</span> cm x <span id="labelHeight">?</span> cm</p>
-
         <div>
             <label for="print_count" style="margin-top: 10px; margin-bottom: 0">Print Count:</label>
             <input id="print_count" class="form-control" type="number" min="1" max="100" data-default="1" required>

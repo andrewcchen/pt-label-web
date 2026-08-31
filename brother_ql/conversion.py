@@ -17,28 +17,33 @@ LABELS = {label.identifier: label for label in ALL_LABELS}
 def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
     """Convert images to P-touch raster instructions."""
     label_spec = LABELS[label]
+    page_options = kwargs.pop('page_options', None)
+    if page_options is not None and len(page_options) != len(images):
+        raise ValueError("page_options must contain one entry per image")
 
     dots_printable = label_spec.dots_printable
     right_margin_dots = label_spec.offset_r
     device_pixel_width = qlr.get_pixel_width()
-
-    cut = kwargs.get('cut', True)
-    dither = kwargs.get('dither', False)
-    compress = kwargs.get('compress', False)
-    rotate = kwargs.get('rotate', 'auto')
-    if rotate != 'auto':
-        rotate = int(rotate)
-    hires = kwargs.get('hires', False)
-    hq = kwargs.get('hq', True)
-    threshold = kwargs.get('threshold', 70)
-    threshold = 100.0 - threshold
-    threshold = min(255, max(0, int(threshold / 100.0 * 255)))
 
     qlr.add_switch_mode()
 
     page_data = []
     logger.info("Rasterizing %d pages", len(images))
     for i, image in enumerate(images):
+        options = dict(kwargs)
+        if page_options is not None:
+            options.update(page_options[i])
+        cut = options.get('cut', True)
+        dither = options.get('dither', False)
+        compress = options.get('compress', False)
+        rotate = options.get('rotate', 'auto')
+        if rotate != 'auto':
+            rotate = int(rotate)
+        hires = options.get('hires', False)
+        hq = options.get('hq', True)
+        threshold = 100.0 - options.get('threshold', 70)
+        threshold = min(255, max(0, int(threshold / 100.0 * 255)))
+
         if isinstance(image, Image.Image):
             im = image
         else:
@@ -78,17 +83,16 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
             im = im.point(lambda x: 0 if x < threshold else 255, mode="1")
 
         tape_size = label_spec.tape_size
-        qlr.mtype = 0x00
+        qlr.mtype = label_spec.media_type
         qlr.mwidth = tape_size
         qlr.mlength = 0
         qlr.pquality = int(hq)
         qlr.add_media_and_quality(im.size[1])
-        if cut:
-            qlr.add_autocut(True)
+        qlr.add_autocut(cut)
         qlr.hires = hires
         qlr.cut_at_end = cut
         qlr.add_expanded_mode()
-        qlr.add_margins(label_spec.feed_margin)
+        qlr.add_margins(label_spec.feed_margin * (2 if hires else 1))
         qlr.add_compression(compress)
         qlr.add_raster_data(im)
 
@@ -108,7 +112,6 @@ def convert(qlr: BrotherQLRaster, images, label, **kwargs):
     """Convert images using the legacy single-result API."""
     qlr.add_invalidate()
     qlr.add_initialize()
-    qlr.add_status_information()
     setup_data = qlr.data
     qlr.clear()
     page_data = _rasterize_images(qlr, images, label, **kwargs)

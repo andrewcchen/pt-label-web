@@ -8,9 +8,9 @@ from . import bp
 from app import FONTS
 from PIL import Image
 from werkzeug.datastructures import FileStorage
-from .printer import PrinterQueue, get_ptr_status
+from .printer import PrinterQueue, get_ptr_status, render_label_bitmap
 from brother_ql.labels import ALL_LABELS
-from .label import SimpleLabel, LabelContent, LabelOrientation, LabelType
+from .label import SimpleLabel, LabelContent, LabelOrientation
 from flask import Request, current_app, json, jsonify, render_template, request, make_response
 from werkzeug.utils import secure_filename
 from app.utils import (
@@ -19,8 +19,16 @@ from app.utils import (
 )
 
 LINE_SPACINGS = (100, 150, 200, 250, 300)
-DEFAULT_DPI = 300
-HIGH_RES_DPI = 600
+DEFAULT_DPI = 180
+HIGH_RES_DPI = 360
+
+
+def _generate_preview(label: SimpleLabel) -> Image.Image:
+    im = render_label_bitmap(label)
+    if label.label_orientation == LabelOrientation.ROTATED:
+        im = im.rotate(-90, expand=True)
+    return im
+
 
 @bp.errorhandler(ValueError)
 def handle_value_error(e):
@@ -29,16 +37,21 @@ def handle_value_error(e):
 @bp.route('/')
 def index():
     debug = current_app.logger.isEnabledFor(logging.DEBUG)
+    model = current_app.config['PRINTER_MODEL']
+    available_labels = ALL_LABELS
     label_sizes = [
         (label.identifier, label.name, label.tape_size, label.dots_printable)
-        for label in ALL_LABELS
+        for label in available_labels
     ]
+    default_label_size = current_app.config['LABEL_DEFAULT_SIZE']
+    if default_label_size not in {label.identifier for label in available_labels}:
+        default_label_size = available_labels[0].identifier
     return render_template(
         'labeldesigner.html',
         fonts=FONTS.fontlist(),
         label_sizes=label_sizes,
         debug=debug,
-        default_label_size=current_app.config['LABEL_DEFAULT_SIZE'],
+        default_label_size=default_label_size,
         default_font_size=current_app.config['LABEL_DEFAULT_FONT_SIZE'],
         default_orientation=current_app.config['LABEL_DEFAULT_ORIENTATION'],
         default_qr_size=current_app.config['LABEL_DEFAULT_QR_SIZE'],
@@ -48,7 +61,8 @@ def index():
         default_font_style=FONTS.get_default_font()[1],
         line_spacings=LINE_SPACINGS,
         default_line_spacing=current_app.config['LABEL_DEFAULT_LINE_SPACING'],
-        default_dpi=DEFAULT_DPI,
+        default_dpi=180,
+        default_high_res=True,
         default_margin_top=current_app.config['LABEL_DEFAULT_MARGIN_TOP'],
         default_margin_bottom=current_app.config['LABEL_DEFAULT_MARGIN_BOTTOM'],
         default_margin_left=current_app.config['LABEL_DEFAULT_MARGIN_LEFT'],
@@ -145,7 +159,7 @@ def repo_save():
             del data['image_data']
 
         # Remove redundant information about zeroth line font settings
-        for key in ['font_size', 'font_inverted', 'font', 'font_align', 'font_checkbox', 'font_color', 'line_spacing', 'fontSettingsPerLine']:
+        for key in ['font_size', 'font_inverted', 'font', 'font_align', 'font_color', 'line_spacing', 'fontSettingsPerLine']:
             if key in data:
                 del data[key]
 
@@ -268,7 +282,7 @@ def repo_preview():
 
     try:
         label = create_label_from_request(data)
-        im = label.generate(rotate=True)
+        im = _generate_preview(label)
     except Exception as e:
         current_app.logger.exception(e)
         return make_response(jsonify({'message': str(e)}), 400)
@@ -359,7 +373,7 @@ def preview_from_image():
         values = request.values.to_dict(flat=True)
         files = request.files.to_dict(flat=True)
         label = create_label_from_request(values, files)
-        im = label.generate(rotate=True)
+        im = _generate_preview(label)
     except Exception as e:
         current_app.logger.exception(e)
         error = 413 if "too long" in str(e) else 400
@@ -432,7 +446,7 @@ def print_label():
 
 
 def create_printer_from_request(request: Request):
-    label_size = request.values.get('label_size', 'pt24')
+    label_size = request.values.get('label_size', 'tze24')
     # Allow overriding the device specifier via the request (frontend selection)
     device = request.values.get('printer') or current_app.config['PRINTER_PRINTER']
     # Allow overriding model via request if provided
@@ -445,7 +459,7 @@ def create_printer_from_request(request: Request):
 
 
 def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
-    label_size = d.get('label_size', "pt24")
+    label_size = d.get('label_size', "tze24")
     if not any(label.identifier == label_size for label in ALL_LABELS):
         raise LookupError("Unknown label_size")
     context = {
@@ -519,12 +533,10 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         label_content = LabelContent.IMAGE_BW
 
     label_orientation = LabelOrientation.ROTATED if context['label_orientation'] == 'rotated' else LabelOrientation.STANDARD
-    label_type = LabelType.ENDLESS_LABEL
-
     width, height = _get_label_dimensions(context['label_size'], context['high_res'])
     if height > width:
         width, height = height, width
-    if label_orientation == LabelOrientation.ROTATED:
+    if label_orientation == LabelOrientation.STANDARD:
         height, width = width, height
 
     # For each line in text, we determine and add the font path
@@ -573,7 +585,6 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         height=height,
         label_content=label_content,
         label_orientation=label_orientation,
-        label_type=label_type,
         label_margin=(
             int(context['margin_left']),
             int(context['margin_right']),
@@ -624,13 +635,13 @@ def _scale_image_to_label(img: Image.Image, label_size: str, orientation: str,
     # Normalize: width = printable width, height = printable height
     if height > width:
         width, height = height, width
-    if orientation == 'rotated':
+    if orientation == 'standard':
         height, width = width, height
 
     img_width, img_height = img.size
     # P-touch tapes are endless: scale to fill the fixed dimension and let
     # the tape length vary.
-    if orientation == 'rotated':
+    if orientation == 'standard':
         scale = height / img_height
     else:
         scale = width / img_width
@@ -671,7 +682,7 @@ def webhook_print():
         - orientation: "standard" or "rotated" (default: from config)
         - image_mode: "grayscale", "bw", or "colored" (default: from config)
         - bw_threshold: black/white threshold 0-255 (default: from config)
-        - high_res: 0 or 1 for 600 DPI (default: 0)
+        - high_res: 0 or 1 for 360 DPI (default: 0)
         - printer: printer device specifier (default: from config)
         - model: printer model (default: from config)
 
@@ -681,7 +692,7 @@ def webhook_print():
                 {"data": "<base64>", "mime": "image/png"},
                 ...
             ],
-            "label_size": "pt24",
+            "label_size": "tze24",
             "orientation": "standard",
             "image_mode": "grayscale",
             "bw_threshold": 70,
@@ -731,12 +742,10 @@ def webhook_print():
             label_content = LabelContent.IMAGE_BW
 
         label_orientation = LabelOrientation.ROTATED if orientation == 'rotated' else LabelOrientation.STANDARD
-        label_type = LabelType.ENDLESS_LABEL
-
         width, height = _get_label_dimensions(label_size, high_res)
         if height > width:
             width, height = height, width
-        if label_orientation == LabelOrientation.ROTATED:
+        if label_orientation == LabelOrientation.STANDARD:
             height, width = width, height
 
     except Exception as e:
@@ -792,7 +801,6 @@ def webhook_print():
                 height=height,
                 label_content=label_content,
                 label_orientation=label_orientation,
-                label_type=label_type,
                 image=img,
                 image_fit=True,
                 text=[],

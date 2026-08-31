@@ -1,16 +1,18 @@
+import base64
 import logging
 import os
+import socket
 import time
-import datetime
+from urllib.parse import urlparse
 from brother_ql.backends.helpers import send
 from brother_ql import BrotherQLRaster
 from brother_ql.conversion import convert
 from brother_ql.backends.helpers import get_status
 from brother_ql.backends import backend_factory, guess_backend
+from brother_ql.reader import interpret_response
 from flask import Config
-from .label import LabelOrientation, LabelType, LabelContent
-
-SIMULATED_LABELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'simulated_labels')
+from PIL import Image
+from .label import LabelOrientation
 
 # Default maximum number of labels to rasterize and send in a single batch.
 # Sending too many labels at once can cause printer timeouts/failures.
@@ -18,6 +20,36 @@ SIMULATED_LABELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirn
 DEFAULT_BATCH_SIZE = 5
 
 logger = logging.getLogger(__name__)
+
+
+def render_label_bitmap(label):
+    return label.generate(rotate=False).convert('1', dither=Image.Dither.NONE)
+
+# Brother private SNMP OID 1.3.6.1.4.1.2435.3.3.9.1.6.1.0. The response
+# contains the same 32-byte status structure used by the USB backend.
+BROTHER_SNMP_STATUS_REQUEST = bytes.fromhex(
+    '30 2c 02 01 00 04 06 70 75 62 6c 69 63 a0 1f 02 01 00 02 01 00 '
+    '02 01 00 30 14 30 12 06 0e 2b 06 01 04 01 93 03 03 03 09 01 06 '
+    '01 00 05 00'
+)
+
+
+def get_network_status(device_specifier: str, timeout: float = 2.0):
+    """Request a Brother status record over SNMP."""
+    parsed = urlparse(device_specifier)
+    if parsed.scheme != 'tcp' or not parsed.hostname:
+        raise ValueError(f'Invalid TCP printer address: {device_specifier}')
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as snmp_socket:
+        snmp_socket.settimeout(timeout)
+        snmp_socket.sendto(BROTHER_SNMP_STATUS_REQUEST, (parsed.hostname, 161))
+        response, _ = snmp_socket.recvfrom(4096)
+
+    status_start = response.find(b'\x80\x20\x42')
+    if status_start < 0 or len(response) < status_start + 32:
+        raise ValueError('Brother SNMP response did not contain a status record')
+    return interpret_response(response[status_start:status_start + 32])
+
 
 class PrinterQueue:
     def __init__(self, model, device_specifier, label_size):
@@ -38,48 +70,41 @@ class PrinterQueue:
         return ``(qlr, generated_images)``."""
         qlr = BrotherQLRaster(self.model)
         generated_images = []
-        raster_data = []
         is_simulation = isinstance(self.device_specifier, str) and self.device_specifier in ['simulation', '?']
+        images = []
+        page_options = []
         for entry in entries:
             label = entry['label']
-            cut = entry['cut']
-            high_res = entry['high_res']
-            if label.label_type == LabelType.ENDLESS_LABEL:
-                rotate = 0 if label.label_orientation == LabelOrientation.STANDARD else 90
-            else:
-                rotate = 'auto'
-            img = label.generate(rotate=False)
+            rotate = 0 if label.label_orientation == LabelOrientation.ROTATED else 90
+            img = render_label_bitmap(label)
+            images.append(img)
+            page_options.append({
+                'cut': entry['cut'],
+                'hires': entry['high_res'],
+                'rotate': rotate,
+            })
             if is_simulation:
                 generated_images.append(img)
-            dither = label.label_content != LabelContent.IMAGE_BW
-            qlr.data = convert(
-                qlr,
-                [img],
-                self.label_size,
-                dither=dither,
-                cut=cut,
-                hires=high_res,
-                rotate=rotate
-            )
-            raster_data.append(qlr.data)
-            qlr.clear()
-        qlr.data = b''.join(raster_data)
+        qlr.data = convert(
+            qlr,
+            images,
+            self.label_size,
+            dither=False,
+            page_options=page_options
+        )
         return qlr, generated_images
 
     def _send_raster(self, qlr, generated_images, batch_index=0) -> str:
         """Send rasterized data to the printer or simulator.
         Returns an empty string on success, or an error message."""
         try:
-            # Simulator: pretend we sent data, save labels as PNG, and return success
+            # Simulator: pretend we sent data, log the printer commands, and return success
             if isinstance(self.device_specifier, str) and self.device_specifier in ['simulation', '?']:
-                logger.info('Simulated sending %d bytes to simulator printer (batch %d)',
-                            len(qlr.data), batch_index)
-                os.makedirs(SIMULATED_LABELS_DIR, exist_ok=True)
-                ts = datetime.datetime.now(datetime.UTC).strftime('%Y%m%d_%H%M%S_%f')
-                for i, img in enumerate(generated_images):
-                    path = os.path.join(SIMULATED_LABELS_DIR, f'{ts}_b{batch_index}_{i}.png')
-                    img.save(path, format='PNG')
-                    logger.info('Saved simulated label to %s', path)
+                logger.debug('Simulated sending %d bytes to simulator printer (batch %d)',
+                             len(qlr.data), batch_index)
+                encoded = base64.b64encode(bytes(qlr.data)).decode('ascii')
+                logger.debug('Simulated printer commands (batch %d) base64: %s',
+                             batch_index, encoded)
                 return ""
 
             network_printer = isinstance(self.device_specifier, str) and self.device_specifier.startswith('tcp://')
@@ -203,7 +228,7 @@ def get_ptr_status(config: Config):
             now = time.time()
             # Refresh cache every 10 seconds
             if now - _last_scan_ts > 10:
-                logger.debug('Auto-detecting P-touch printers on local USB')
+                logger.debug('Auto-detecting printers: scanning local USB')
                 found_list = []
                 for i in range(0, 11):
                     dev = f"/dev/usb/lp{i}"
@@ -247,12 +272,11 @@ def get_ptr_status(config: Config):
                     **status
                 }
         elif device_specifier.startswith('tcp://'):
-            # TCP printers are not supported for status queries
-            status['status_type'] = 'Unknown'
-            printer = SIMULATOR_PRINTER.copy()
-            printer['path'] = device_specifier
-            printer['phase_type'] = 'Network Printer'
-            printer['status_type'] = 'Network Printer'
+            printer_state = get_network_status(device_specifier)
+            printer_state['model'] = default_model
+            for key, value in printer_state.items():
+                status[key] = value
+            printer = status.copy()
             sim = SIMULATOR_PRINTER.copy()
             status['printers'] = [printer, sim]
             status['selected'] = device_specifier

@@ -1,4 +1,4 @@
-from .enums import LabelContent, LabelOrientation, LabelType
+from .enums import LabelContent, LabelOrientation
 import os
 import uuid
 from qrcode import QRCode, constants
@@ -40,7 +40,6 @@ class SimpleLabel:
         height: int = 0,
         label_content: LabelContent = LabelContent.TEXT_ONLY,
         label_orientation: LabelOrientation = LabelOrientation.STANDARD,
-        label_type: LabelType = LabelType.ENDLESS_LABEL,
         barcode_type: str = "QR",
         label_margin: Tuple[int, int, int, int] = (0, 0, 0, 0),
         fore_color: Tuple[int, int, int] = (0, 0, 0),
@@ -76,7 +75,6 @@ class SimpleLabel:
         self._height = height
         self.label_content = label_content
         self.label_orientation = label_orientation
-        self.label_type = label_type
         self.barcode_type = barcode_type
         self._label_margin = label_margin
         self._fore_color = fore_color
@@ -159,14 +157,6 @@ class SimpleLabel:
     @label_orientation.setter
     def label_orientation(self, value):
         self._label_orientation = value
-
-    @property
-    def label_type(self):
-        return self._label_type
-
-    @label_type.setter
-    def label_type(self, value):
-        self._label_type = value
 
     def process_templates(self) -> None:
         """Process and replace templates in the text lines."""
@@ -267,7 +257,7 @@ class SimpleLabel:
 
                 # Resize the image to fit within the maximum dimensions
                 scale = 1.0
-                if self._label_orientation == LabelOrientation.STANDARD:
+                if self._label_orientation == LabelOrientation.ROTATED:
                     scale = max_width / img_width
                 else:
                     scale = max_height / img_height
@@ -296,15 +286,13 @@ class SimpleLabel:
             bboxes = []
             textsize = (0, 0, 0, 0)
 
-        # Adjust label size for endless label
-        if self._label_orientation == LabelOrientation.STANDARD:
-            if self._label_type in (LabelType.ENDLESS_LABEL,):
-                height = img_height + textsize[3] - textsize[1] + margin_top + margin_bottom
-        elif self._label_orientation == LabelOrientation.ROTATED:
-            if self._label_type in (LabelType.ENDLESS_LABEL,):
-                width = img_width + textsize[2] + margin_left + margin_right
+        # Adjust the tape length to fit the content.
+        if self._label_orientation == LabelOrientation.ROTATED:
+            height = img_height + textsize[3] - textsize[1] + margin_top + margin_bottom
+        elif self._label_orientation == LabelOrientation.STANDARD:
+            width = img_width + textsize[2] + margin_left + margin_right
 
-        if self._label_orientation == LabelOrientation.STANDARD:
+        if self._label_orientation == LabelOrientation.ROTATED:
             vertical_offset_text = margin_top
             if self.need_image_text_distance:
                 # Slightly increase the margin to get some distance from the QR code.
@@ -315,7 +303,7 @@ class SimpleLabel:
             horizontal_offset_image = (width - img_width)//2
             vertical_offset_image = margin_top
 
-        elif self._label_orientation == LabelOrientation.ROTATED:
+        elif self._label_orientation == LabelOrientation.STANDARD:
             vertical_offset_text = (height - textsize[3])//2
             vertical_offset_text += (margin_top - margin_bottom)//2
             horizontal_offset_text = margin_left
@@ -456,9 +444,6 @@ class SimpleLabel:
 
             color = (0, 0, 0)
 
-            # Draw checkbox if needed
-            checkbox = line.get('checkbox', False)
-
             INVERT_LINE = 'inverted' in line and line['inverted']
             if do_draw and INVERT_LINE:
                 # Draw a filled rectangle
@@ -516,13 +501,6 @@ class SimpleLabel:
                 elif align == "right":
                     max_bbox_x = max(bbox[0][2] for bbox in bboxes) if len(bboxes) > 0 else 0
                     x = max_bbox_x + text_offset[0]
-
-                # Draw checkbox if needed
-                if checkbox:
-                    checkbox_box_dimensions = 8 * int(line['size']) // 10
-                    bbox = draw.textbbox((x - 1.2 * checkbox_box_dimensions, y), line['text'], font=font, align=align, anchor=anchor)
-                    box_dimensions = bbox[0], y, bbox[0] + checkbox_box_dimensions, y + checkbox_box_dimensions
-                    draw.rounded_rectangle(box_dimensions, radius=5, outline=color, width=max(1, checkbox_box_dimensions//10), fill=(255,255,255))
 
                 draw.text((x, y), line['text'], color, font=font, anchor=anchor, align=align, spacing=spacing)
 

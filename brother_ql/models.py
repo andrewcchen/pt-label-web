@@ -19,7 +19,7 @@ ALL_MODELS = [
         identifier="PT-E550W",
         number_bytes_per_row=16,
         series_code=0x30,
-        model_code=0x68,
+        model_code=0x66,
         product_id=0x2060,
     ),
     Model(
@@ -36,18 +36,18 @@ ALL_MODELS = [
         model_code=0x68,
         product_id=0x2062,
     ),
-    Model(
-        identifier="PT-P900W",
-        number_bytes_per_row=70,
-        series_code=0x30,
-        model_code=0x69,
-        product_id=0x2085,
-    ),
-    Model(
-        identifier="PT-P950NW",
-        number_bytes_per_row=70,
-        series_code=0x30,
-        model_code=0x70,
-        product_id=0x2086,
-    ),
+    # Model(
+    #     identifier="PT-P900W",
+    #     number_bytes_per_row=70,
+    #     series_code=0x30,
+    #     model_code=0x69,
+    #     product_id=0x2085,
+    # ),
+    # Model(
+    #     identifier="PT-P950NW",
+    #     number_bytes_per_row=70,
+    #     series_code=0x30,
+    #     model_code=0x70,
+    #     product_id=0x2086,
+    # ),
 ]

@@ -55,7 +55,6 @@ def fill_first_line_fields(text, data: dict):
         data['font_inverted'] = True if text[0].get('inverted', 0) else False
         data['font'] = text[0].get('font', FONTS.get_default_font()[0])
         data['font_align'] = text[0].get('align', 'left')
-        data['font_checkbox'] = True if text[0].get('checkbox', 0) else False
         data['font_inverted'] = True if text[0].get('inverted', 0) else False
         data['line_spacing'] = str(text[0].get('line_spacing', current_app.config['LABEL_DEFAULT_LINE_SPACING']))
     else:
@@ -63,6 +62,5 @@ def fill_first_line_fields(text, data: dict):
         data['font_inverted'] = False
         data['font'] = FONTS.get_default_font()[0]
         data['font_align'] = 'left'
-        data['font_checkbox'] = False
         data['line_spacing'] = str(current_app.config['LABEL_DEFAULT_LINE_SPACING'])
     return data
