@@ -2,7 +2,7 @@
 var printer_status = {
     'errors': [],
     'model': 'Unknown',
-    'media_width': 24,
+    'media_width': null,
     'media_length': 0,
     'phase_type': 'Unknown'
 };
@@ -569,7 +569,18 @@ function get_barcode_types() {
 function updatePrinterStatus() {
     const labelSizeX = document.getElementById('label-width');
     if (labelSizeX) {
-        labelSizeX.textContent = (printer_status.media_width ?? "???") + " mm";
+        const labelDetails = [];
+        labelDetails.push((printer_status.media_width ?? "???") + " mm");
+        if (printer_status.media_type && printer_status.media_type !== 'Unknown') {
+            labelDetails.push(printer_status.media_type);
+        }
+        if (printer_status.tape_color && printer_status.tape_color !== 'Unknown') {
+            labelDetails.push(printer_status.tape_color + ' tape');
+        }
+        if (printer_status.text_color && printer_status.text_color !== 'Unknown') {
+            labelDetails.push(printer_status.text_color + ' text');
+        }
+        labelSizeX.textContent = labelDetails.join(' · ');
     }
 
     // Check for label size mismatch compared to data-x property of select
@@ -743,7 +754,6 @@ function updateUndoButton() {
         history = JSON.parse(localStorage.getItem(LS_HISTORY_KEY)) || [];
     } catch { history = []; }
     const steps = Math.max(0, history.length - 1);
-    $('#undoCounter').text(steps);
     $('#undoSettingsBtn').prop('disabled', steps === 0);
 }
 
