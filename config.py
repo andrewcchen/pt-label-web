@@ -4,22 +4,30 @@ Adjust your settings in 'instance/application.py'
 """
 
 import os
-import logging
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-class Config(object):
+
+def _from_env(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    if isinstance(default, bool):
+        return value.lower() in ('1', 'true', 'yes', 'on')
+    return type(default)(value)
+
+
+class Config():
     DEBUG = False
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', logging.WARNING)
+    LOG_LEVEL = 'WARNING'
 
     SERVER_PORT = 8013
     SERVER_HOST = '0.0.0.0'
 
-    PRINTER_MODEL = os.environ.get('PRINTER_MODEL', 'PT-P750W')
-    PRINTER_PRINTER = os.environ.get('PRINTER_PRINTER', '?')
-
-    LABEL_DEFAULT_ORIENTATION = os.environ.get('LABEL_DEFAULT_ORIENTATION', 'standard')
-    LABEL_DEFAULT_SIZE = os.environ.get('LABEL_DEFAULT_SIZE', 'tze12')
+    PRINTER_MODEL = 'PT-P750W'
+    PRINTER_PRINTER = '?'
+    LABEL_DEFAULT_ORIENTATION = 'standard'
+    LABEL_DEFAULT_SIZE = 'tze12'
     LABEL_DEFAULT_FONT_SIZE = 70
     LABEL_DEFAULT_QR_SIZE = 10
     LABEL_DEFAULT_LINE_SPACING = 100
@@ -41,4 +49,9 @@ class Config(object):
     # Webhook print endpoint password. The webhook is disabled when empty.
     # Generate a secure password with:
     #   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-    WEBHOOK_PASSWORD = os.environ.get('WEBHOOK_PASSWORD', '')
+    WEBHOOK_PASSWORD = ''
+
+
+for _name, _default in vars(Config).items():
+    if _name.isupper():
+        setattr(Config, _name, _from_env(_name, _default))

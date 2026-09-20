@@ -55,4 +55,4 @@ RUN if [ $TARGETARCH == "arm" ]; then \
 COPY . /app
 
 EXPOSE 8013
-ENTRYPOINT ["python3", "run.py"]
+ENTRYPOINT ["gunicorn", "--bind", "0.0.0.0:8013", "wsgi:app"]

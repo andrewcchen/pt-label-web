@@ -5,13 +5,10 @@
 This is a web service to print labels on Brother P-touch printers.
 """
 
-import os
 import sys
-import argparse
 import logging
 
 from flask import Flask
-from brother_ql.models import ALL_MODELS
 
 from . import fonts
 from config import Config
@@ -29,10 +26,6 @@ def create_app(config_class=Config) -> Flask:
     logging.getLogger(__name__).setLevel(app.config.get('LOG_LEVEL', 'INFO'))
 
     FONTS = init_fonts(app)
-
-    # Only parse command-line arguments if not running under pytest
-    if not any('pytest' in arg for arg in sys.argv[0:1]):
-        parse_args(app)
 
     from app.main import bp as main_bp
     app.register_blueprint(main_bp)
@@ -56,26 +49,3 @@ def init_fonts(app: Flask):
         sys.exit(2)
 
     return FONTS
-
-
-def parse_args(app):
-    models = [model.identifier for model in ALL_MODELS]
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--default-label-size', default=os.getenv('LABEL_DEFAULT_SIZE', app.config['LABEL_DEFAULT_SIZE']),
-                        help='Tape size inserted in your printer. Defaults to tze24.')
-    parser.add_argument('--default-orientation', default=os.getenv('LABEL_DEFAULT_ORIENTATION', app.config['LABEL_DEFAULT_ORIENTATION']), choices=('standard', 'rotated'),
-                        help='Label orientation, defaults to "standard". To turn your text by 90°, state "rotated".')
-    parser.add_argument('--model', default=os.getenv('PRINTER_MODEL', app.config['PRINTER_MODEL']), choices=models,
-                        help='The model of your printer (default: PT-P750W)')
-    parser.add_argument('printer', nargs='?', default=os.environ.get('PRINTER_PRINTER', app.config['PRINTER_PRINTER']),
-                        help='String descriptor for the printer to use (like tcp://192.168.0.23:9100 or file:///dev/usb/lp0), may be left out to use auto-detection.')
-    args = parser.parse_args()
-
-    if args.printer:
-        app.config['PRINTER_PRINTER'] = args.printer
-    if args.model:
-        app.config['PRINTER_MODEL'] = args.model
-    if args.default_label_size:
-        app.config['LABEL_DEFAULT_SIZE'] = args.default_label_size
-    if args.default_orientation:
-        app.config['LABEL_DEFAULT_ORIENTATION'] = args.default_orientation
