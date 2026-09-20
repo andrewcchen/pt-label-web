@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Backend to support Brother QL-series printers via network.
+Backend to support Brother P-touch printers via network.
 Works cross-platform.
 """
 
@@ -9,22 +9,9 @@ import socket, time, select
 
 from .generic import BrotherQLBackendGeneric
 
-def list_available_devices():
-    """
-    List all available devices for the network backend
-
-    returns: devices: a list of dictionaries with the keys 'identifier' and 'instance': \
-        [ {'identifier': 'tcp://hostname[:port]', 'instance': None}, ] \
-        Instance is set to None because we don't want to connect to the device here yet.
-    """
-
-    # We need some snmp request sent to 255.255.255.255 here
-    raise NotImplementedError()
-    return [{'identifier': 'tcp://' + path, 'instance': None} for path in paths]
-
 class BrotherQLBackendNetwork(BrotherQLBackendGeneric):
     """
-    BrotherQL backend using the Linux Kernel USB Printer Device Handles
+    Brother P-touch backend using TCP sockets
     """
 
     def __init__(self, device_specifier):

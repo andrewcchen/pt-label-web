@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Backend to support Brother QL-series printers via PyUSB.
+Backend to support Brother P-touch printers via PyUSB.
 Works on Mac OS X and Linux.
 
 Requires PyUSB: https://github.com/walac/pyusb/
@@ -16,8 +16,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 from .generic import BrotherQLBackendGeneric
+from brother_ql.models import ALL_MODELS
 
 BROTHER_VID = 0x04f9
+PTOUCH_PRODUCT_IDS = {model.product_id for model in ALL_MODELS}
 
 def list_available_devices(ums_warning=True):
     """
@@ -47,14 +49,16 @@ def list_available_devices(ums_warning=True):
 
     # get a list of Brother printers with the printer class
     printers = usb.core.find(find_all=1, custom_match=find_class(usb.CLASS_PRINTER), idVendor=BROTHER_VID)
+    printers = [printer for printer in (printers or []) if printer.idProduct in PTOUCH_PRODUCT_IDS]
     ums_printers = usb.core.find(find_all=1, custom_match=find_class(usb.CLASS_MASS_STORAGE), idVendor=BROTHER_VID)
+    ums_printers = [printer for printer in (ums_printers or []) if printer.idProduct in PTOUCH_PRODUCT_IDS]
 
     def get_descriptor(dev, descriptor):
         result = None
         try:
             result = usb.util.get_string(dev, descriptor)
         except ValueError:
-            # Sometimes this is caused by a permission issue, but some printers (such as the QL-700 in ums mode)
+            # Sometimes this is caused by a permission issue, but some printers
             # are not compliant with the USB spec and won't present a LANGID array. Hard-code US English and try again.
             result = usb.util.get_string(dev, descriptor, langid=0x0409)
         if result is None:
@@ -110,6 +114,9 @@ class BrotherQLBackendPyUSB(BrotherQLBackendGeneric):
             self.dev = device_specifier
         else:
             raise NotImplementedError('Currently the printer can be specified either via an appropriate string or via a usb.core.Device instance.')
+
+        if self.dev.idProduct not in PTOUCH_PRODUCT_IDS:
+            raise ValueError('Only P-touch printers are supported')
 
         # Now we are sure to have self.dev around, start using it:
 

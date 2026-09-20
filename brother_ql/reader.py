@@ -1,57 +1,19 @@
 #!/usr/bin/env python
 
-import struct
-import io
 import logging
-import sys
-from brother_ql.models import ModelsManager
-
-from PIL import Image
-from PIL.ImageOps import colorize
+from brother_ql.models import ALL_MODELS
 
 logger = logging.getLogger(__name__)
 
-OPCODES = {
-    # signature              name    following bytes   description
-    b'\x00':                 ("preamble",       -1, "Preamble, 200-300x 0x00 to clear comamnd buffer"),
-    b'\x4D':                 ("compression",     1, ""),
-    b'\x67':                 ("raster QL",         -1, ""),
-    b'\x47':                 ("raster P-touch",    -1, ""),
-    b'\x77':                 ("2-color raster QL", -1, ""),
-    b'\x5a':                 ("zero raster",     0, "empty raster line"),
-    b'\x0C':                 ("print",           0, "print intermediate page"),
-    b'\x1A':                 ("print",           0, "print final page"),
-    b'\x1b\x40':             ("init",            0, "initialization"),
-    b'\x1b\x69\x61':         ("mode setting",    1, ""),
-    b'\x1b\x69\x21':         ("automatic status",1, ""),
-    b'\x1b\x69\x7A':         ("media/quality",  10, "print-media and print-quality"),
-    b'\x1b\x69\x4D':         ("various",         1, "Auto cut flag in bit 7"),
-    b'\x1b\x69\x41':         ("cut-every",       1, "cut every n-th page"),
-    b'\x1b\x69\x4B':         ("expanded",        1, ""),
-    b'\x1b\x69\x64':         ("margins",         2, ""),
-    b'\x1b\x69\x55\x77\x01': ('amedia',        127, "Additional media information command"),
-    b'\x1b\x69\x55\x41':     ('auto_power_off',       -1, "Auto power off setting command"),
-    b'\x1b\x69\x55\x4A':     ('jobid',          14, "Job ID setting command"),
-    b'\x1b\x69\x55\x70':     ('auto_power_on',       -1, "Auto power on setting command"),
-    b'\x1b\x69\x58\x47':     ("request_config",  0, "Request transmission of .ini config file of printer"),
-    b'\x1b\x69\x6B\x63':     ("number_of_copies",  2, "Internal specification commands"),
-    b'\x1b\x69\x53':         ('status request',  0, "A status information request sent to the printer"),
-    b'\x80\x20\x42':         ('status response',29, "A status response received from the printer"),
-}
-
-dot_widths = {
-  62: 90*8,
-}
-
 RESP_ERROR_INFORMATION_1_DEF = {
   0: 'No media when printing',
-  1: 'End of media (die-cut size only)',
+  1: 'End of media',
   2: 'Tape cutter jam',
   3: 'Weak batteries',
-  4: 'Main unit in use (QL-560/650TD/1050)',
+  4: 'Main unit in use',
   5: 'Printer turned off',
   6: 'High-voltage adapter (not used)',
-  7: 'Fan doesn\'t work (QL-1050/1060N)',
+  7: 'Fan doesn\'t work',
 }
 
 RESP_ERROR_INFORMATION_2_DEF = {
@@ -59,8 +21,8 @@ RESP_ERROR_INFORMATION_2_DEF = {
   1: 'Expansion buffer full error',
   2: 'Transmission / Communication error',
   3: 'Communication buffer full error (not used)',
-  4: 'Cover opened while printing (Except QL-500)',
-  5: 'Cancel key (not used) or Overheating error (PT-E550W/P750W/P710BT)',
+  4: 'Cover opened while printing',
+  5: 'Cancel key or overheating error',
   6: 'Media cannot be fed (also when the media end is detected)',
   7: 'System error',
 }
@@ -75,10 +37,6 @@ RESP_MEDIA_TYPES = {
   0x14: 'Flexible ID tape',
   0x15: 'Satin tape',
   0x17: 'Heat-Shrink Tube (HS 3:1)',
-  0x0A: 'Continuous length tape',
-  0x0B: 'Die-cut labels',
-  0x4A: 'Continuous length tape',
-  0x4B: 'Die-cut labels',
   0xFF: 'Incompatible tape',
 }
 
@@ -92,10 +50,6 @@ RESP_MEDIA_CATEGORIES = {
   0x14: 'TZe',
   0x15: 'TZe',
   0x17: 'HSe',
-  0x0A: 'DK',
-  0x0B: 'DK',
-  0x4A: 'DK', # RD for TD series
-  0x4B: 'DK', # RD for TD series
   0xFF: 'Incompatible',
 }
 
@@ -201,46 +155,6 @@ RESP_BYTE_NAMES = [
 def hex_format(data):
     return ' '.join('{:02X}'.format(byte) for byte in data)
 
-def chunker(data, raise_exception=False):
-    """
-    Breaks data stream (bytes) into a list of bytes objects containing single instructions each.
-
-    Logs warnings for unknown opcodes or raises an exception instead, if raise_exception is set to True.
-
-    returns: list of bytes objects
-    """
-    instructions = []
-    data = bytes(data)
-    while True:
-        if len(data) == 0: break
-        try:
-            opcode = match_opcode(data)
-        except KeyError:
-            msg = 'unknown opcode starting with {}...)'.format(hex_format(data[0:4]))
-            if raise_exception:
-                raise ValueError(msg)
-            else:
-                logger.warning(msg)
-                data = data[1:]
-                continue
-        opcode_def = OPCODES[opcode]
-        num_bytes = len(opcode)
-        if opcode_def[1] > 0: num_bytes += opcode_def[1]
-        elif opcode_def[0] in ('raster QL', '2-color raster QL'):
-            num_bytes += data[2] + 2
-        elif opcode_def[0] in ('raster P-touch',):
-            num_bytes += data[1] + data[2]*256 + 2
-        #payload = data[len(opcode):num_bytes]
-        instructions.append(data[:num_bytes])
-        yield instructions[-1]
-        data = data[num_bytes:]
-    #return instructions
-
-def match_opcode(data):
-    matching_opcodes = [opcode for opcode in OPCODES.keys() if data.startswith(opcode)]
-    assert len(matching_opcodes) == 1
-    return matching_opcodes[0]
-
 def interpret_response(data):
     data = bytes(data)
     if len(data) < 32:
@@ -254,7 +168,7 @@ def interpret_response(data):
 
     # printer model detection
     model = "Unknown"
-    for m in ModelsManager().iter_elements():
+    for m in ALL_MODELS:
         if series_code == m.series_code and model_code == m.model_code:
             model = m.identifier
             break
@@ -288,9 +202,8 @@ def interpret_response(data):
     text_color_code = data[25]
     tape_color = ''
     text_color = ''
-    if model.startswith('PT'):
-        tape_color = RESP_TAPE_COLORS[tape_color_code]
-        text_color = RESP_TEXT_COLORS[text_color_code]
+    tape_color = RESP_TAPE_COLORS.get(tape_color_code, 'Unknown')
+    text_color = RESP_TEXT_COLORS.get(text_color_code, 'Unknown')
 
     status_code = data[18]
     if status_code in RESP_STATUS_TYPES:
@@ -332,145 +245,3 @@ def interpret_response(data):
       'errors': errors,
     }
     return response
-
-
-def merge_specific_instructions(chunks, join_preamble=True, join_raster=True):
-    """
-    Process a list of instructions by merging subsequent instuctions with
-    identical opcodes into "large instructions".
-    """
-    new_instructions = []
-    last_opcode = None
-    instruction_buffer = b''
-    for instruction in chunks:
-        opcode = match_opcode(instruction)
-        if   join_preamble and OPCODES[opcode][0] == 'preamble' and last_opcode == 'preamble':
-            instruction_buffer += instruction
-        elif join_raster   and 'raster' in OPCODES[opcode][0] and 'raster' in last_opcode:
-            instruction_buffer += instruction
-        else:
-            if instruction_buffer:
-                new_instructions.append(instruction_buffer)
-            instruction_buffer = instruction
-        last_opcode = OPCODES[opcode][0]
-    if instruction_buffer:
-        new_instructions.append(instruction_buffer)
-    return new_instructions
-
-class BrotherQLReader(object):
-    DEFAULT_FILENAME_FMT = 'label{counter:04d}.png'
-
-    def __init__(self, brother_file):
-        if type(brother_file) in (str,):
-            brother_file = io.open(brother_file, 'rb')
-        self.brother_file = brother_file
-        self.mwidth, self.mheight = None, None
-        self.raster_no = None
-        self.black_rows = []
-        self.red_rows = []
-        self.compression = False
-        self.page_counter = 1
-        self.two_color_printing = False
-        self.cut_at_end = False
-        self.high_resolution_printing = False
-        self.filename_fmt = self.DEFAULT_FILENAME_FMT
-
-    def analyse(self):
-        instructions = self.brother_file.read()
-        for instruction in chunker(instructions):
-            for opcode in OPCODES.keys():
-                if instruction.startswith(opcode):
-                    opcode_def = OPCODES[opcode]
-                    if opcode_def[0] == 'init':
-                        self.mwidth, self.mheight = None, None
-                        self.raster_no = None
-                        self.black_rows = []
-                        self.red_rows = []
-                    payload = instruction[len(opcode):]
-                    logger.info(" {} ({}) --> found! (payload: {})".format(opcode_def[0], hex_format(opcode), hex_format(payload)))
-                    if opcode_def[0] == 'compression':
-                        self.compression = payload[0] == 0x02
-                    if opcode_def[0] == 'zero raster':
-                        self.black_rows.append(bytes())
-                        if self.two_color_printing:
-                            self.red_rows.append(bytes())
-                    if opcode_def[0] in ('raster QL', '2-color raster QL', 'raster P-touch'):
-                        rpl = bytes(payload[2:]) # raster payload
-                        if self.compression:
-                            row = bytes()
-                            index = 0
-                            while True:
-                                num = rpl[index]
-                                if num & 0x80:
-                                    num = num - 0x100
-                                if num < 0:
-                                    num = -num + 1
-                                    row += bytes([rpl[index+1]] * num)
-                                    index += 2
-                                else:
-                                    num = num + 1
-                                    row += rpl[index+1:index+1+num]
-                                    index += 1 + num
-                                if index >= len(rpl): break
-                        else:
-                            row = rpl
-                        if opcode_def[0] in ('raster QL', 'raster P-touch'):
-                            self.black_rows.append(row)
-                        else: # 2-color
-                            if   payload[0] == 0x01:
-                                self.black_rows.append(row)
-                            elif payload[0] == 0x02:
-                                self.red_rows.append(row)
-                            else:
-                                raise NotImplementedError("color: 0x%x" % payload[0])
-                    if opcode_def[0] == 'expanded':
-                        self.two_color_printing = bool(payload[0] & (1 << 0))
-                        self.cut_at_end = bool(payload[0] & (1 << 3))
-                        self.high_resolution_printing = bool(payload[0] & (1 << 6))
-                    if opcode_def[0] == 'media/quality':
-                        self.raster_no = struct.unpack('<L', payload[4:8])[0]
-                        self.mwidth = instruction[len(opcode) + 2]
-                        self.mlength = instruction[len(opcode) + 3]*256
-                        fmt = " media width: {} mm, media length: {} mm, raster no: {} rows"
-                        logger.info(fmt.format(self.mwidth, self.mlength, self.raster_no))
-                    if opcode_def[0] == 'print':
-                        logger.info("Len of black rows: %d", len(self.black_rows))
-                        logger.info("Len of red   rows: %d", len(self.red_rows))
-                        def get_im(rows):
-                            if not len(rows): return None
-                            width_dots  = max(len(row) for row in rows)
-                            height_dots = len(rows)
-                            size = (width_dots*8, height_dots)
-                            expanded_rows = []
-                            for row in rows:
-                                if len(row) == 0:
-                                    expanded_rows.append(b'\x00'*width_dots)
-                                else:
-                                    expanded_rows.append(row)
-                            data = bytes(b''.join(expanded_rows))
-                            data = bytes([2**8 + ~byte for byte in data]) # invert b/w
-                            im = Image.frombytes("1", size, data, decoder_name='raw')
-                            return im
-                        if not self.two_color_printing:
-                            im_black = get_im(self.black_rows)
-                            im = im_black
-                        else:
-                            im_black, im_red = (get_im(rows) for rows in (self.black_rows, self.red_rows))
-                            im_black = im_black.convert("RGBA")
-                            im_red = im_red.convert("L")
-                            im_red = colorize(im_red, (255, 0, 0), (255, 255, 255))
-                            im_red = im_red.convert("RGBA")
-                            pixdata_black = im_black.load()
-                            width, height = im_black.size
-                            for y in range(height):
-                                for x in range(width):
-                                    # replace "white" with "transparent"
-                                    if pixdata_black[x, y] == (255, 255, 255, 255):
-                                        pixdata_black[x, y] = (255, 255, 255, 0)
-                            im_red.paste(im_black, (0, 0), im_black)
-                            im = im_red
-                        im = im.transpose(Image.FLIP_LEFT_RIGHT)
-                        img_name = self.filename_fmt.format(counter=self.page_counter)
-                        im.save(img_name)
-                        print('Page saved as {}'.format(img_name))
-                        self.page_counter += 1

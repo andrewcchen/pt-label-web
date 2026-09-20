@@ -16,10 +16,6 @@ textarea#label_text {
     resize: none;
 }
 
-.roundPreviewImage {
-    border-radius: 100%;
-}
-
 label {
     font-weight: 700;
 }

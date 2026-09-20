@@ -25,9 +25,9 @@
                         <div class="accordion-body">
                             <label for="label_size" style="margin-bottom: 0">Label Size:</label>
                             <select class="form-control form-select" id="label_size" onChange="preview()" data-default="{{default_label_size}}">
-                                {% for label_size in label_sizes %}<option value="{{label_size[0]}}" data-x="{{label_size[3][0]}}"
-                                    data-y="{{label_size[3][1]}}" data-round="{{label_size[2]}}" {% if default_label_size==label_size[0]
-                                    %}selected{% endif %}>{{label_size[1]}}{% if debug %} ({{label_size[4][0]}}x{{label_size[4][1]}}px){% endif %}</option>{% endfor %}
+                                {% for label_size in label_sizes %}<option value="{{label_size[0]}}" data-x="{{label_size[2]}}"
+                                    data-y="0" {% if default_label_size==label_size[0]
+                                    %}selected{% endif %}>{{label_size[1]}}{% if debug %} ({{label_size[3]}}px){% endif %}</option>{% endfor %}
                             </select>
                             <div class="form-text text-muted">Detected label: <span id="label-width">???</span> x <span id="label-height">???</span></div>
                             <div id="labelMismatch" class="form-text text-danger" style="display: none;">Label size mismatch detected!</div>
@@ -131,18 +131,6 @@
                                             TODO item (checkbox)
                                         </label>
                                     </div>
-                                    <div class="red-support">
-                                        <label for="print_color" class="form-label input-group" style="margin-top: 10px; margin-bottom: 0">Print
-                                            Color:</label>
-                                        <div class="btn-group">
-                                            <label class="btn btn-dark" id="print_color_black">
-                                                <input type="radio" name="print_color" onchange="preview()" value="black" aria-label="Black" data-default="1">Black
-                                            </label>
-                                            <label class="btn btn-danger" id="print_color_red">
-                                                <input type="radio" name="print_color" onchange="preview()" value="red" aria-label="Red">Red
-                                            </label>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
 
@@ -206,13 +194,6 @@
                                     onchange="preview()" aria-label="Black & White" {% if default_image_mode=='black_and_white' %}checked{% endif %}>
                                 <label class="btn btn-secondary" for="image_mode_bw" data-bs-toggle="tooltip" title="Black & White mode">
                                     <span class="fa-solid fa-circle-half-stroke" aria-hidden="true"></span><br/>B/W
-                                </label>
-                                <input type="radio" class="btn-check" name="image_mode" id="image_mode_red_and_black" autocomplete="off"
-                                    value="red_and_black" onchange="preview()" aria-label="Red & Black & White" {% if
-                                    default_image_mode=='red_and_black' %}checked{% endif %}>
-                                <label class="btn btn-secondary" for="image_mode_red_and_black" data-bs-toggle="tooltip" title="Red, Black & White mode">
-                                    <span class="fa-solid fa-droplet" style="color: #d32f2f;" aria-hidden="true"></span>
-                                    <span class="fa-solid fa-droplet" style="color: #222;" aria-hidden="true"></span><br/>R/B/W
                                 </label>
                                 <input type="radio" class="btn-check" name="image_mode" id="image_mode_grayscale" autocomplete="off" value="grayscale"
                                     onchange="preview()" aria-label="Grayscale" {% if default_image_mode=='grayscale' %}checked data-default="1" {%
@@ -314,18 +295,6 @@
                                 <span class="input-group-text" id="marginBottom-addon">px</span>
                             </div>
 
-                            <div class="red-support">
-                                <label for="border_color" class="form-label input-group" style="margin-top: 10px; margin-bottom: 0">Print
-                                    Color:</label>
-                                <div class="btn-group">
-                                    <label class="btn btn-dark" id="border_color_black">
-                                        <input type="radio" name="border_color" onchange="preview()" value="black" aria-label="Black" data-default="1">Black
-                                    </label>
-                                    <label class="btn btn-danger" id="border_color_red">
-                                        <input type="radio" name="border_color" onchange="preview()" value="red" aria-label="Red">Red
-                                    </label>
-                                </div>
-                            </div>
                         </div>
                         <!-- class="accordion-body" -->
                     </div>

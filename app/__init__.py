@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-This is a web service to print labels on Brother QL label printers.
+This is a web service to print labels on Brother P-touch printers.
 """
 
 import os
@@ -60,11 +60,11 @@ def parse_args(app):
     models = [model.identifier for model in ALL_MODELS]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--default-label-size', default=os.getenv('LABEL_DEFAULT_SIZE', app.config['LABEL_DEFAULT_SIZE']),
-                        help='Label size inserted in your printer. Defaults to 62.')
+                        help='Tape size inserted in your printer. Defaults to pt24.')
     parser.add_argument('--default-orientation', default=os.getenv('LABEL_DEFAULT_ORIENTATION', app.config['LABEL_DEFAULT_ORIENTATION']), choices=('standard', 'rotated'),
                         help='Label orientation, defaults to "standard". To turn your text by 90°, state "rotated".')
     parser.add_argument('--model', default=os.getenv('PRINTER_MODEL', app.config['PRINTER_MODEL']), choices=models,
-                        help='The model of your printer (default: QL-500)')
+                        help='The model of your printer (default: PT-P750W)')
     parser.add_argument('printer', nargs='?', default=os.environ.get('PRINTER_PRINTER', app.config['PRINTER_PRINTER']),
                         help='String descriptor for the printer to use (like tcp://192.168.0.23:9100 or file:///dev/usb/lp0), may be left out to use auto-detection.')
     args = parser.parse_args()

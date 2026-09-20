@@ -58,7 +58,6 @@ class SimpleLabel:
         border_color: Tuple[int, int, int] = (0, 0, 0),
         timestamp: int = 0,
         counter: int = 0,
-        red_support: bool = False,
         code_text: str = '',
     ):
         """Initialize a SimpleLabel object."""
@@ -96,7 +95,6 @@ class SimpleLabel:
         self._border_color = border_color
         self._counter = counter
         self._timestamp = timestamp
-        self._red_support = red_support
         self._code_text = code_text
 
     @property
@@ -133,7 +131,6 @@ class SimpleLabel:
         return self._label_content in (LabelContent.TEXT_QRCODE,
                                        LabelContent.IMAGE_BW,
                                        LabelContent.IMAGE_GRAYSCALE,
-                                       LabelContent.IMAGE_RED_BLACK,
                                        LabelContent.IMAGE_COLORED)
 
     @property
@@ -233,7 +230,7 @@ class SimpleLabel:
                 img = self._generate_qr()
             else:
                 img = self._generate_barcode()
-        elif self._label_content in (LabelContent.IMAGE_BW, LabelContent.IMAGE_GRAYSCALE, LabelContent.IMAGE_RED_BLACK, LabelContent.IMAGE_COLORED):
+        elif self._label_content in (LabelContent.IMAGE_BW, LabelContent.IMAGE_GRAYSCALE, LabelContent.IMAGE_COLORED):
             img = self._image
         else:
             img = None
@@ -271,19 +268,9 @@ class SimpleLabel:
                 # Resize the image to fit within the maximum dimensions
                 scale = 1.0
                 if self._label_orientation == LabelOrientation.STANDARD:
-                    if self._label_type in (LabelType.ENDLESS_LABEL,):
-                        # Only width is considered for endless label without rotation
-                        scale = max_width / img_width
-                    else:
-                        # Both dimensions are considered for standard label
-                        scale = min(max_width / img_width, max_height / img_height)
+                    scale = max_width / img_width
                 else:
-                    if self._label_type in (LabelType.ENDLESS_LABEL,):
-                        # Only height is considered for endless label without rotation
-                        scale = max_height / img_height
-                    else:
-                        # Both dimensions are considered for standard label
-                        scale = min(max_width / img_width, max_height / img_height)
+                    scale = max_height / img_height
                 logger.debug(f"Scaling image by factor: {scale}")
                 new_size = (int(img_width * scale), int(img_height * scale))
                 logger.debug(f"Resized image size: {new_size} px")
@@ -318,15 +305,10 @@ class SimpleLabel:
                 width = img_width + textsize[2] + margin_left + margin_right
 
         if self._label_orientation == LabelOrientation.STANDARD:
-            if self._label_type in (LabelType.DIE_CUT_LABEL, LabelType.ROUND_DIE_CUT_LABEL):
-                vertical_offset_text = (height - img_height - textsize[3])//2
-                vertical_offset_text += (margin_top - margin_bottom)//2
-            else:
-                vertical_offset_text = margin_top
-                if self.need_image_text_distance:
-                    # Slightly increase the margin to get some distance from the
-                    # QR code
-                    vertical_offset_text *= 1.25
+            vertical_offset_text = margin_top
+            if self.need_image_text_distance:
+                # Slightly increase the margin to get some distance from the QR code.
+                vertical_offset_text *= 1.25
 
             vertical_offset_text += img_height
             horizontal_offset_text = max((width - textsize[2])//2, 0)
@@ -336,14 +318,10 @@ class SimpleLabel:
         elif self._label_orientation == LabelOrientation.ROTATED:
             vertical_offset_text = (height - textsize[3])//2
             vertical_offset_text += (margin_top - margin_bottom)//2
-            if self._label_type in (LabelType.DIE_CUT_LABEL, LabelType.ROUND_DIE_CUT_LABEL):
-                horizontal_offset_text = max((width - img_width - textsize[2])//2, 0)
-            else:
-                horizontal_offset_text = margin_left
-                if self.need_image_text_distance:
-                    # Slightly increase the margin to get some distance from the
-                    # QR code
-                    horizontal_offset_text *= 1.25
+            horizontal_offset_text = margin_left
+            if self.need_image_text_distance:
+                # Slightly increase the margin to get some distance from the QR code.
+                horizontal_offset_text *= 1.25
 
             horizontal_offset_text += img_width
             horizontal_offset_image = margin_left
@@ -369,10 +347,7 @@ class SimpleLabel:
 
         # Check if the image needs rotation (only applied when generating
         # preview images)
-        preview_needs_rotation = (
-            self._label_orientation == LabelOrientation.ROTATED and self._label_type not in (LabelType.DIE_CUT_LABEL, LabelType.ROUND_DIE_CUT_LABEL) or \
-            self._label_orientation == LabelOrientation.STANDARD and self._label_type in (LabelType.DIE_CUT_LABEL, LabelType.ROUND_DIE_CUT_LABEL)
-        )
+        preview_needs_rotation = self._label_orientation == LabelOrientation.ROTATED
         if rotate and preview_needs_rotation:
             imgResult = imgResult.rotate(-90, expand=True)
 
@@ -441,8 +416,7 @@ class SimpleLabel:
             text = "\n".join(line.get('text', '') for line in self.text)
         qr.add_data(text.encode("utf-8-sig"))
         qr.make(fit=True)
-        fill_color = 'red' if self._fore_color == (255, 0, 0) else 'black'
-        qr_img = qr.make_image(fill_color=fill_color, back_color="white")
+        qr_img = qr.make_image(fill_color='black', back_color="white")
         return qr_img
 
     def _draw_text(self, img = None, bboxes = [], text_offset = (0, 0)):
@@ -480,10 +454,7 @@ class SimpleLabel:
             else:
                 raise ValueError(f"Unsupported alignment: {align}")
 
-            red_font = 'color' in line and line['color'] == 'red'
-#            if red_font and not self._red_support:
-#                raise ValueError("Red font is not supported on this label")
-            color = (255, 0, 0) if red_font else (0, 0, 0)
+            color = (0, 0, 0)
 
             # Draw checkbox if needed
             checkbox = line.get('checkbox', False)

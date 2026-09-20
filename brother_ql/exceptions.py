@@ -1,12 +1,6 @@
 
-class BrotherQLError(Exception):
+class BrotherQLUnknownModel(Exception):
     pass
 
-class BrotherQLUnsupportedCmd(BrotherQLError):
-    pass
-
-class BrotherQLUnknownModel(BrotherQLError):
-    pass
-
-class BrotherQLRasterError(BrotherQLError):
+class BrotherQLRasterError(Exception):
     pass

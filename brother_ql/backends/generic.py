@@ -4,13 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def list_available_devices(ums_warning=True):
-    """ List all available devices for the respective backend """
-    # returns a list of dictionaries with the keys 'identifier' and 'instance':
-    # [ {'identifier': '/dev/usb/lp0', 'instance': os.open('/dev/usb/lp0', os.O_RDWR)}, ]
-    raise NotImplementedError()
-
-
 class BrotherQLBackendGeneric(object):
 
     def __init__(self, device_specifier):

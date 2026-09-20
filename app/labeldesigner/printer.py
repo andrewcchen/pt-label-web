@@ -3,12 +3,12 @@ import os
 import time
 import datetime
 from brother_ql.backends.helpers import send
-from brother_ql import BrotherQLRaster, create_label
+from brother_ql import BrotherQLRaster
+from brother_ql.conversion import convert
 from brother_ql.backends.helpers import get_status
 from brother_ql.backends import backend_factory, guess_backend
 from flask import Config
 from .label import LabelOrientation, LabelType, LabelContent
-from brother_ql.models import ALL_MODELS
 
 SIMULATED_LABELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'simulated_labels')
 
@@ -18,13 +18,6 @@ SIMULATED_LABELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirn
 DEFAULT_BATCH_SIZE = 5
 
 logger = logging.getLogger(__name__)
-
-# Experimentally identified MAC address prefixes for Brother network printers
-# (may not be exhaustive)
-BROTHER_MAC_ADDRESS_PREFIXES = [
-    "ac:f2:3c",  # Brother QL-810W
-]
-
 
 class PrinterQueue:
     def __init__(self, model, device_specifier, label_size):
@@ -45,6 +38,7 @@ class PrinterQueue:
         return ``(qlr, generated_images)``."""
         qlr = BrotherQLRaster(self.model)
         generated_images = []
+        raster_data = []
         is_simulation = isinstance(self.device_specifier, str) and self.device_specifier in ['simulation', '?']
         for entry in entries:
             label = entry['label']
@@ -58,16 +52,18 @@ class PrinterQueue:
             if is_simulation:
                 generated_images.append(img)
             dither = label.label_content != LabelContent.IMAGE_BW
-            create_label(
+            qlr.data = convert(
                 qlr,
-                img,
+                [img],
                 self.label_size,
-                red='red' in str(self.label_size),
                 dither=dither,
                 cut=cut,
-                dpi_600=high_res,
+                hires=high_res,
                 rotate=rotate
             )
+            raster_data.append(qlr.data)
+            qlr.clear()
+        qlr.data = b''.join(raster_data)
         return qlr, generated_images
 
     def _send_raster(self, qlr, generated_images, batch_index=0) -> str:
@@ -182,7 +178,6 @@ def get_ptr_status(config: Config):
         'status_type': 'Simulator',
         'tape_color': '',
         'text_color': '',
-        'red_support': default_model in [m.identifier for m in ALL_MODELS if m.two_color]
     }
 
     status = {
@@ -201,7 +196,6 @@ def get_ptr_status(config: Config):
         "status_type": "Unknown",
         "tape_color": "",
         "text_color": "",
-        "red_support": False
     }
     try:
         # If device_specifier is the default '?', try to auto-detect multiple printers
@@ -209,7 +203,7 @@ def get_ptr_status(config: Config):
             now = time.time()
             # Refresh cache every 10 seconds
             if now - _last_scan_ts > 10:
-                logger.debug('Auto-detecting printers: scanning local USB and network')
+                logger.debug('Auto-detecting P-touch printers on local USB')
                 found_list = []
                 for i in range(0, 11):
                     dev = f"/dev/usb/lp{i}"
@@ -224,26 +218,6 @@ def get_ptr_status(config: Config):
                         logger.debug('Found compatible printer at %s -> %s', spec, printer_state.get('model'))
                     except Exception:
                         logger.debug('Device %s exists but is not a compatible printer or failed to query', dev, exc_info=True)
-
-                # scan ARP table for network printers with known Brother MAC
-                # address prefixes
-                try:
-                    with open('/proc/net/arp', 'r') as arp_file:
-                        for line in arp_file.readlines()[1:]:  # skip header line
-                            parts = line.split()
-                            if len(parts) < 4:
-                                continue
-                            ip, _, _, mac, _, _ = parts
-                            if any(mac.startswith(prefix) for prefix in BROTHER_MAC_ADDRESS_PREFIXES):
-                                device_specifier = f"tcp://{ip}"
-                                printer = SIMULATOR_PRINTER.copy()
-                                printer['path'] = device_specifier
-                                printer['phase_type'] = 'Network Printer'
-                                printer['status_type'] = 'Network Printer'
-                                found_list.append(printer)
-                                logger.debug('Found network printer candidate at %s -> %s', device_specifier, printer.get('model'))
-                except Exception:
-                    logger.debug('Failed to read ARP table for network printer detection', exc_info=True)
 
                 _cached_printers = found_list
                 _last_scan_ts = now
@@ -290,7 +264,6 @@ def get_ptr_status(config: Config):
                 status[key] = value
         # Always include simulator in returned printers list
         sim = SIMULATOR_PRINTER.copy()
-        status['red_support'] = status['model'] in [model.identifier for model in ALL_MODELS if model.two_color]
         return {
             'printers': [sim],
             'selected': status.get('path'),

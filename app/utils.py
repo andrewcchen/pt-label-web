@@ -2,7 +2,6 @@
 
 from PIL import Image
 from io import BufferedReader, BytesIO
-from PIL.ImageOps import colorize
 from flask import current_app
 from pdf2image import convert_from_bytes
 from werkzeug.datastructures import FileStorage
@@ -19,14 +18,6 @@ def convert_image_to_bw(image: Image.Image, threshold: int) -> Image.Image:
 def convert_image_to_grayscale(image: Image.Image) -> Image.Image:
     # convert to grayscale (ITU-R 601-2 Luma transform)
     return image.convert('L')
-
-
-def convert_image_to_red_and_black(image: Image.Image,
-                                   blackpoint: int = 0,
-                                   whitepoint: int = 255,
-                                   redpoint: int = 127) -> Image.Image:
-    return colorize(image.convert('L'), black='black', white='white', mid='red',
-                    blackpoint=blackpoint, whitepoint=whitepoint, midpoint=redpoint)
 
 
 def imgfile_to_image(file: FileStorage | BufferedReader) -> Image.Image:
@@ -65,7 +56,6 @@ def fill_first_line_fields(text, data: dict):
         data['font'] = text[0].get('font', FONTS.get_default_font()[0])
         data['font_align'] = text[0].get('align', 'left')
         data['font_checkbox'] = True if text[0].get('checkbox', 0) else False
-        data['font_color'] = text[0].get('color', 'black')
         data['font_inverted'] = True if text[0].get('inverted', 0) else False
         data['line_spacing'] = str(text[0].get('line_spacing', current_app.config['LABEL_DEFAULT_LINE_SPACING']))
     else:
@@ -74,6 +64,5 @@ def fill_first_line_fields(text, data: dict):
         data['font'] = FONTS.get_default_font()[0]
         data['font_align'] = 'left'
         data['font_checkbox'] = False
-        data['font_color'] = 'black'
         data['line_spacing'] = str(current_app.config['LABEL_DEFAULT_LINE_SPACING'])
     return data

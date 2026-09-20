@@ -9,12 +9,12 @@ from app import FONTS
 from PIL import Image
 from werkzeug.datastructures import FileStorage
 from .printer import PrinterQueue, get_ptr_status
-from brother_ql.labels import ALL_LABELS, FormFactor
+from brother_ql.labels import ALL_LABELS
 from .label import SimpleLabel, LabelContent, LabelOrientation, LabelType
 from flask import Request, current_app, json, jsonify, render_template, request, make_response
 from werkzeug.utils import secure_filename
 from app.utils import (
-    convert_image_to_bw, convert_image_to_grayscale, convert_image_to_red_and_black, fill_first_line_fields,
+    convert_image_to_bw, convert_image_to_grayscale, fill_first_line_fields,
     pdffile_to_image, imgfile_to_image, image_to_png_bytes
 )
 
@@ -30,7 +30,7 @@ def handle_value_error(e):
 def index():
     debug = current_app.logger.isEnabledFor(logging.DEBUG)
     label_sizes = [
-        (label.identifier, label.name, label.form_factor == FormFactor.ROUND_DIE_CUT, label.tape_size, label.dots_printable)
+        (label.identifier, label.name, label.tape_size, label.dots_printable)
         for label in ALL_LABELS
     ]
     return render_template(
@@ -432,7 +432,7 @@ def print_label():
 
 
 def create_printer_from_request(request: Request):
-    label_size = request.values.get('label_size', '62')
+    label_size = request.values.get('label_size', 'pt24')
     # Allow overriding the device specifier via the request (frontend selection)
     device = request.values.get('printer') or current_app.config['PRINTER_PRINTER']
     # Allow overriding model via request if provided
@@ -445,15 +445,13 @@ def create_printer_from_request(request: Request):
 
 
 def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
-    label_size = d.get('label_size', "62")
-    kind = next((label.form_factor for label in ALL_LABELS if label.identifier == label_size), None)
-    if kind is None:
+    label_size = d.get('label_size', "pt24")
+    if not any(label.identifier == label_size for label in ALL_LABELS):
         raise LookupError("Unknown label_size")
     context = {
         'label_size': label_size,
         'print_type': d.get('print_type', 'text'),
         'label_orientation': d.get('orientation', 'standard'),
-        'kind': kind,
         'margin_top': int(d.get('margin_top', 12)),
         'margin_bottom': int(d.get('margin_bottom', 12)),
         'margin_left': int(d.get('margin_left', 20)),
@@ -462,7 +460,7 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         'border_roundness': int(d.get('border_roundness', 0)),
         'border_distanceX': int(d.get('border_distance_x', 0)),
         'border_distanceY': int(d.get('border_distance_y', 0)),
-        'border_color': d.get('border_color', 'black'),
+        'border_color': 'black',
         'text': json.loads(d.get('text', '[]')),
         'barcode_type': d.get('barcode_type', 'QR'),
         'qrcode_size': int(d.get('qrcode_size', 10)),
@@ -473,7 +471,6 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         'image_crop': int(d.get('image_crop', 0)) > 0,
         'image_scaling_factor': float(d.get('image_scaling_factor', 100.0)),
         'image_rotation': int(d.get('image_rotation', 0)),
-        'print_color': d.get('print_color', 'black'),
         'timestamp': int(d.get('timestamp', 0)),
         'high_res': int(d.get('high_res', 0)) != 0,
         'code_text': d.get('code_text', '').strip(),
@@ -499,8 +496,6 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
             image = imgfile_to_image(image)
             if context['image_mode'] == 'grayscale':
                 return convert_image_to_grayscale(image)
-            elif context['image_mode'] == 'red_and_black':
-                return convert_image_to_red_and_black(image)
             elif context['image_mode'] == 'colored':
                 return image
             else:
@@ -518,20 +513,13 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         label_content = LabelContent.TEXT_QRCODE
     elif image_mode == 'grayscale':
         label_content = LabelContent.IMAGE_GRAYSCALE
-    elif image_mode == 'red_black':
-        label_content = LabelContent.IMAGE_RED_BLACK
     elif image_mode == 'colored':
         label_content = LabelContent.IMAGE_COLORED
     else:
         label_content = LabelContent.IMAGE_BW
 
     label_orientation = LabelOrientation.ROTATED if context['label_orientation'] == 'rotated' else LabelOrientation.STANDARD
-    if context['kind'] == FormFactor.ENDLESS:
-        label_type = LabelType.ENDLESS_LABEL
-    elif context['kind'] == FormFactor.DIE_CUT:
-        label_type = LabelType.DIE_CUT_LABEL
-    else:
-        label_type = LabelType.ROUND_DIE_CUT_LABEL
+    label_type = LabelType.ENDLESS_LABEL
 
     width, height = _get_label_dimensions(context['label_size'], context['high_res'])
     if height > width:
@@ -550,8 +538,8 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         if len(line.get('text', '')) > 10_000:
             raise ValueError("Text is too long")
 
-    fore_color = (255, 0, 0) if context['print_color'] == 'red' else (0, 0, 0)
-    border_color = (255, 0, 0) if context['border_color'] == 'red' else (0, 0, 0)
+    fore_color = (0, 0, 0)
+    border_color = (0, 0, 0)
 
     uploaded = files.get('image', None)
     image = None
@@ -573,8 +561,6 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
                     # Apply same conversions as get_uploaded_image would
                     if context['image_mode'] == 'grayscale':
                         image = convert_image_to_grayscale(pil_img)
-                    elif context['image_mode'] == 'red_and_black':
-                        image = convert_image_to_red_and_black(pil_img)
                     elif context['image_mode'] == 'colored':
                         image = pil_img
                     else:
@@ -615,19 +601,17 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
 
 
 def _get_label_dimensions(label_size: str, high_res: bool = False):
-    dimensions = next((label.dots_printable for label in ALL_LABELS if label.identifier == label_size), None)
-    if dimensions is None:
+    width = next((label.dots_printable for label in ALL_LABELS if label.identifier == label_size), None)
+    if width is None:
         raise LookupError("Unknown label_size")
     if high_res:
-        return (2 * dimensions[0], 2 * dimensions[1])
-    return dimensions
+        return (2 * width, 0)
+    return (width, 0)
 
 
 def _convert_image(img: Image.Image, image_mode: str, bw_threshold: int = 70) -> Image.Image:
     if image_mode == 'grayscale':
         return convert_image_to_grayscale(img)
-    elif image_mode == 'red_and_black':
-        return convert_image_to_red_and_black(img)
     elif image_mode == 'colored':
         return img
     else:
@@ -643,19 +627,13 @@ def _scale_image_to_label(img: Image.Image, label_size: str, orientation: str,
     if orientation == 'rotated':
         height, width = width, height
 
-    kind = next((label.form_factor for label in ALL_LABELS if label.identifier == label_size), None)
-    is_endless = kind == FormFactor.ENDLESS
-
     img_width, img_height = img.size
-    if is_endless:
-        # For endless labels, scale to fill the fixed dimension and let length vary
-        if orientation == 'rotated':
-            scale = height / img_height
-        else:
-            scale = width / img_width
+    # P-touch tapes are endless: scale to fill the fixed dimension and let
+    # the tape length vary.
+    if orientation == 'rotated':
+        scale = height / img_height
     else:
-        # For die-cut labels, fit within both dimensions
-        scale = min(width / img_width, height / img_height)
+        scale = width / img_width
 
     new_size = (max(1, int(img_width * scale)), max(1, int(img_height * scale)))
     return img.resize(new_size, Image.Resampling.LANCZOS)
@@ -691,7 +669,7 @@ def webhook_print():
         - images: one or more image files (field name "images")
         - label_size: label size identifier (default: from config)
         - orientation: "standard" or "rotated" (default: from config)
-        - image_mode: "grayscale", "bw", "red_and_black", "colored" (default: from config)
+        - image_mode: "grayscale", "bw", or "colored" (default: from config)
         - bw_threshold: black/white threshold 0-255 (default: from config)
         - high_res: 0 or 1 for 600 DPI (default: 0)
         - printer: printer device specifier (default: from config)
@@ -703,7 +681,7 @@ def webhook_print():
                 {"data": "<base64>", "mime": "image/png"},
                 ...
             ],
-            "label_size": "62",
+            "label_size": "pt24",
             "orientation": "standard",
             "image_mode": "grayscale",
             "bw_threshold": 70,
@@ -741,27 +719,19 @@ def webhook_print():
         model = _param('model', current_app.config['PRINTER_MODEL'])
 
         # Validate label_size
-        kind = next((label.form_factor for label in ALL_LABELS if label.identifier == label_size), None)
-        if kind is None:
+        if not any(label.identifier == label_size for label in ALL_LABELS):
             return make_response(jsonify({'success': False, 'message': f'Unknown label_size: {label_size}'}), 400)
 
         # Determine label content type from image_mode
         if image_mode == 'grayscale':
             label_content = LabelContent.IMAGE_GRAYSCALE
-        elif image_mode == 'red_and_black':
-            label_content = LabelContent.IMAGE_RED_BLACK
         elif image_mode == 'colored':
             label_content = LabelContent.IMAGE_COLORED
         else:
             label_content = LabelContent.IMAGE_BW
 
         label_orientation = LabelOrientation.ROTATED if orientation == 'rotated' else LabelOrientation.STANDARD
-        if kind == FormFactor.ENDLESS:
-            label_type = LabelType.ENDLESS_LABEL
-        elif kind == FormFactor.DIE_CUT:
-            label_type = LabelType.DIE_CUT_LABEL
-        else:
-            label_type = LabelType.ROUND_DIE_CUT_LABEL
+        label_type = LabelType.ENDLESS_LABEL
 
         width, height = _get_label_dimensions(label_size, high_res)
         if height > width:

@@ -2,10 +2,9 @@
 var printer_status = {
     'errors': [],
     'model': 'Unknown',
-    'media_width': 62,
+    'media_width': 24,
     'media_length': 0,
-    'phase_type': 'Unknown',
-    'red_support': false
+    'phase_type': 'Unknown'
 };
 
 const DEFAULT_FONT = 'Droid Serif,Regular';
@@ -89,8 +88,7 @@ function setFontSettingsPerLine() {
         inverted: $('#font_inverted').is(':checked'),
         checkbox: $('#font_checkbox').is(':checked'),
         align: $('input[name=font_align]:checked').val() || 'center',
-        line_spacing: $('input[name=line_spacing]:checked').val() || '100',
-        color: $('input[name=print_color]:checked').val() || 'black'
+        line_spacing: $('input[name=line_spacing]:checked').val() || '100'
     };
 
     // Create lines in the <option> with id #lineSelect
@@ -169,9 +167,6 @@ $(document).ready(function () {
         $('input[name=line_spacing][value="' + fs.line_spacing + '"]').prop('checked', true).trigger("change");
         // Set font inversion
         $('#font_inverted').prop('checked', fs.inverted);
-        // Set font color
-        $('input[name=print_color]').prop('checked', false);
-        $('input[name=print_color][value="' + fs.color + '"]').prop('checked', true).trigger("change");
         // Set checkbox item
         $('#font_checkbox').prop('checked', fs.checkbox);
     });
@@ -236,10 +231,6 @@ function formData(cut_once = false) {
         sync_font_settings: $('#sync_font_settings').is(':checked') ? 1 : 0
     }
 
-    if (printer_status['red_support']) {
-        data['print_color'] = $('input[name=print_color]:checked').val();
-        data['border_color'] = $('input[name=border_color]:checked').val();
-    }
     data['code_text'] = $('#code_text').val() || '';
 
     // Include selected printer if available
@@ -275,15 +266,6 @@ function gen_label(preview = true, cut_once = false) {
 
     // Update font settings for each line
     setFontSettingsPerLine();
-
-    if (preview) {
-        // Update preview image based on label size
-        if ($('#label_size option:selected').data('round') == 'True') {
-            $('img#previewImg').addClass('roundPreviewImage');
-        } else {
-            $('img#previewImg').removeClass('roundPreviewImage');
-        }
-    }
 
     // Show or hide image upload box
     if ($('input[name=print_type]:checked').val() == 'image') {
@@ -535,13 +517,6 @@ function get_barcode_types() {
 }
 
 function updatePrinterStatus() {
-    if ($('#label_size option:selected').val().includes('red')) {
-        $(".red-support").show();
-    } else {
-        $('#print_color_black').prop('active', true);
-        $(".red-support").hide();
-    }
-
     const labelSizeX = document.getElementById('label-width');
     const labelSizeY = document.getElementById('label-height');
     if (labelSizeX && labelSizeY) {
