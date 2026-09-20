@@ -40,6 +40,7 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
         if rotate != 'auto':
             rotate = int(rotate)
         hires = options.get('hires', False)
+        chain_print = options.get('chain_print', False)
         hq = options.get('hq', True)
         threshold = 100.0 - options.get('threshold', 70)
         threshold = min(255, max(0, int(threshold / 100.0 * 255)))
@@ -91,6 +92,7 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
         qlr.add_autocut(cut)
         qlr.hires = hires
         qlr.cut_at_end = cut
+        qlr.no_chain_printing = not chain_print
         qlr.add_expanded_mode()
         qlr.add_margins(label_spec.feed_margin * (2 if hires else 1))
         qlr.add_compression(compress)

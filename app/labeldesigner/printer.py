@@ -58,11 +58,12 @@ class PrinterQueue:
         self.label_size = label_size
         self._print_queue = []
 
-    def add_label_to_queue(self, label, cut: bool = True, high_res: bool = False):
+    def add_label_to_queue(self, label, cut: bool = True, high_res: bool = False, chain_print: bool = False):
         self._print_queue.append({
             'label': label,
             'cut': cut,
-            'high_res': high_res
+            'high_res': high_res,
+            'chain_print': chain_print
         })
 
     def _rasterize_entries(self, entries):
@@ -81,6 +82,7 @@ class PrinterQueue:
             page_options.append({
                 'cut': entry['cut'],
                 'hires': entry['high_res'],
+                'chain_print': entry['chain_print'],
                 'rotate': rotate,
             })
             if is_simulation:

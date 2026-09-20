@@ -224,6 +224,7 @@ function formData(cut_once = false) {
         print_count: parseInt($('#print_count').val(), 10) || 0,
         log_level: $('#log_level').val(),
         cut_once: cut_once ? 1 : 0,
+        chain_print: $('#chain_print').is(':checked') ? 1 : 0,
         border_thickness: parseInt($('#border_thickness').val(), 10) || 0,
         border_roundness: parseInt($('#border_roundness').val(), 10) || 0,
         border_distance_x: parseInt($('#border_distance_x').val(), 10) || 0,
