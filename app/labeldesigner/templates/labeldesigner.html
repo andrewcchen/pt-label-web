@@ -55,7 +55,7 @@
                                 </label>
                             </div>
                                 <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" onchange="preview()" id="high_res" data-default="{{ 1 if default_high_res else 0 }}" {% if default_high_res %}checked{% endif %}>
+                                <input class="form-check-input" type="checkbox" onchange="preview()" id="high_res" data-default="1" checked>
                                 <label class="form-check-label" for="high_res">
                                     High-resolution printing
                                 </label>
@@ -101,6 +101,12 @@
                                     <label for="font_size" style="margin-top: 10px; margin-bottom: 0">Font Size:</label>
                                     <input id="font_size" class="form-control" type="number" min="1" data-default="{{default_font_size}}"
                                         onChange="preview()" required>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" onchange="toggleFontSize(); preview()" id="font_auto_scale" data-default="1" checked>
+                                        <label class="form-check-label" for="font_auto_scale">
+                                            Auto scale font size to fit
+                                        </label>
+                                    </div>
 
                                     <label for="font_align" class="form-label input-group" style="margin-top: 10px; margin-bottom: 0">Font
                                         Alignment:</label>
@@ -121,13 +127,10 @@
 
                                     <label for="line_spacing" class="form-label input-group" style="margin-top: 10px; margin-bottom: 0">Line
                                         Spacing:</label>
-                                    <div class="btn-group mb-3" role="radiogroup" aria-label="Line Spacing">
-                                        {% for line_spacing in line_spacings %}
-                                        <input type="radio" class="btn-check" name="line_spacing" id="line_spacing{{line_spacing}}" autocomplete="off"
-                                            value="{{line_spacing}}" onchange="preview()" aria-label="{{line_spacing}}%" {% if
-                                            default_line_spacing==line_spacing %}checked data-default="1" {% endif %}>
-                                        <label class="btn btn-secondary" for="line_spacing{{line_spacing}}">{{line_spacing}}%</label>
-                                        {% endfor %}
+                                    <div class="input-group mb-3">
+                                        <input id="line_spacing" class="form-control" type="number" min="0" step="1"
+                                            value="{{default_line_spacing}}" data-default="{{default_line_spacing}}" onchange="preview()" required>
+                                        <span class="input-group-text">%</span>
                                     </div>
                                     <h6>Additional Font Options:</h6>
                                     <div class="form-check mb-2">

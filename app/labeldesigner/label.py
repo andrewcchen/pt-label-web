@@ -280,6 +280,10 @@ class SimpleLabel:
             img_width, img_height = (0, 0)
 
         if self.want_text(img):
+            if self._label_orientation == LabelOrientation.STANDARD:
+                self._auto_scale_text(max(height - margin_top - margin_bottom, 1), height=True)
+            else:
+                self._auto_scale_text(max(width - margin_left - margin_right, 1), height=False)
             bboxes = self._draw_text(None, [])
             textsize = self._compute_bbox(bboxes)
         else:
@@ -356,6 +360,29 @@ class SimpleLabel:
             # Draw (rounded) rectangle
             draw.rounded_rectangle(rect, radius=self._border_roundness, outline=self._border_color, width=self._border_thickness)
         return imgResult
+
+    def _auto_scale_text(self, available: int, height: bool) -> None:
+        """Choose the largest font size that fits the label's constrained axis."""
+        auto_lines = [line for line in self.text if line.get('auto_scale')]
+        if not auto_lines or not any(line.get('text', '') for line in auto_lines):
+            return
+
+        def fits(size: int) -> bool:
+            for line in auto_lines:
+                line['size'] = size
+            bbox = self._compute_bbox(self._draw_text(None, []))
+            used = bbox[3] - bbox[1] if height else bbox[2]
+            return used <= available
+
+        low, high = 1, 4096
+        while low < high:
+            candidate = (low + high + 1) // 2
+            if fits(candidate):
+                low = candidate
+            else:
+                high = candidate - 1
+        for line in auto_lines:
+            line['size'] = low
 
     @staticmethod
     def _crop_image_to_content(img: Image.Image) -> Image.Image:
@@ -445,27 +472,6 @@ class SimpleLabel:
             color = (0, 0, 0)
 
             INVERT_LINE = 'inverted' in line and line['inverted']
-            if do_draw and INVERT_LINE:
-                # Draw a filled rectangle
-                center_x = 0
-                if anchor == "lt":
-                    min_bbox_x = text_offset[0] + min(bbox[0][0] for bbox in bboxes)
-                    max_bbox_x = text_offset[0] + bboxes[i][0][2] # max(bbox[0][2] for bbox in bboxes)
-                elif anchor == "mt":
-                    min_bbox_x = min(bbox[0][0] for bbox in bboxes)
-                    max_bbox_x = max(bbox[0][2] for bbox in bboxes)
-                    center_x = (min_bbox_x + max_bbox_x) // 2
-                    min_bbox_x = text_offset[0] + center_x - (bboxes[i][0][2] - bboxes[i][0][0]) // 2
-                    max_bbox_x = text_offset[0] + center_x + (bboxes[i][0][2] - bboxes[i][0][0]) // 2
-                elif anchor == "rt":
-                    max_bbox_x = text_offset[0] + max(bbox[0][2] for bbox in bboxes)
-                    min_bbox_x = max_bbox_x - (bboxes[i][0][2] - bboxes[i][0][0])
-                shift = 0.1 * int(line['size'])
-                y_min = bboxes[i][0][1] + text_offset[1] - shift
-                y_max = bboxes[i][0][3] + text_offset[1] - shift
-                draw.rectangle((min_bbox_x, y_min, max_bbox_x, y_max), fill=color)
-                # Overwrite font color with white on colored background
-                color = (255, 255, 255)
 
             # Either calculate bbox or actually draw
             if not do_draw:
@@ -473,11 +479,9 @@ class SimpleLabel:
                 bbox = draw.textbbox((0, y), line['text'], font=font, align=align, anchor="lt")
 
                 # Ensure consistent line heights for each line except the last
-                # one (where it is not needed). We still need this when
-                # inverting text to ensure the inversion box is large enough to
-                # hold the entire text
+                # one (where it is not needed).
                 IS_LAST_LINE = i == len(self.text) - 1
-                if not IS_LAST_LINE or INVERT_LINE:
+                if not IS_LAST_LINE:
                     # Some characters may need special height
                     all_characters = ''.join(string.ascii_letters + string.digits + string.punctuation)
                     Ag = draw.textbbox((0, y), all_characters, font, anchor="lt")
@@ -501,6 +505,14 @@ class SimpleLabel:
                 elif align == "right":
                     max_bbox_x = max(bbox[0][2] for bbox in bboxes) if len(bboxes) > 0 else 0
                     x = max_bbox_x + text_offset[0]
+
+                if INVERT_LINE:
+                    text_bbox = draw.textbbox((x, y), line['text'], font=font, align=align, anchor=anchor)
+                    padding = max(1, round(int(line['size']) * 0.1))
+                    line_top = min(text_bbox[1] - padding, bbox[1] + text_offset[1])
+                    line_bottom = max(text_bbox[3] + padding, bbox[3] + text_offset[1])
+                    draw.rectangle((text_bbox[0], line_top, text_bbox[2], line_bottom), fill=color)
+                    color = (255, 255, 255)
 
                 draw.text((x, y), line['text'], color, font=font, anchor=anchor, align=align, spacing=spacing)
 

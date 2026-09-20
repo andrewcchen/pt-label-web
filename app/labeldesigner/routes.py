@@ -18,7 +18,6 @@ from app.utils import (
     pdffile_to_image, imgfile_to_image, image_to_png_bytes
 )
 
-LINE_SPACINGS = (100, 150, 200, 250, 300)
 DEFAULT_DPI = 180
 HIGH_RES_DPI = 360
 
@@ -59,10 +58,8 @@ def index():
         default_bw_threshold=current_app.config['IMAGE_DEFAULT_BW_THRESHOLD'],
         default_font_family=FONTS.get_default_font()[0],
         default_font_style=FONTS.get_default_font()[1],
-        line_spacings=LINE_SPACINGS,
         default_line_spacing=current_app.config['LABEL_DEFAULT_LINE_SPACING'],
         default_dpi=180,
-        default_high_res=True,
         default_margin_top=current_app.config['LABEL_DEFAULT_MARGIN_TOP'],
         default_margin_bottom=current_app.config['LABEL_DEFAULT_MARGIN_BOTTOM'],
         default_margin_left=current_app.config['LABEL_DEFAULT_MARGIN_LEFT'],
@@ -159,7 +156,7 @@ def repo_save():
             del data['image_data']
 
         # Remove redundant information about zeroth line font settings
-        for key in ['font_size', 'font_inverted', 'font', 'font_align', 'font_color', 'line_spacing', 'fontSettingsPerLine']:
+        for key in ['font_size', 'font_auto_scale', 'font_inverted', 'font', 'font_align', 'font_color', 'line_spacing', 'fontSettingsPerLine']:
             if key in data:
                 del data[key]
 
@@ -389,6 +386,7 @@ def preview_from_image():
         content_type = 'image/png'
     response = make_response(response_data)
     response.headers.set('Content-type', content_type)
+    response.headers.set('X-Font-Sizes', json.dumps([line.get('size') for line in label.text]))
     return response
 
 

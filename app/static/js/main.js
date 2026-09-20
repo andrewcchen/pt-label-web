@@ -11,7 +11,7 @@ const DEFAULT_FONT = 'Droid Serif,Regular';
 
 // Returns an array of font settings for each line of label text.
 // Each new line inherits the font settings of the previous line.
-let fontSettingsPerLine = [];
+var fontSettingsPerLine = [];
 
 // Helper: parse a data:...;base64,<b64> data URL into mime and base64 parts
 function parseDataUrl(dataUrl) {
@@ -85,9 +85,10 @@ function setFontSettingsPerLine() {
     var currentFont = {
         font: $('#font option:selected').val() || DEFAULT_FONT,
         size: $('#font_size').val(),
+        auto_scale: $('#font_auto_scale').is(':checked'),
         inverted: $('#font_inverted').is(':checked'),
         align: $('input[name=font_align]:checked').val() || 'center',
-        line_spacing: $('input[name=line_spacing]:checked').val() || '100'
+        line_spacing: $('#line_spacing').val() || '100'
     };
 
     // Create lines in the <option> with id #lineSelect
@@ -158,12 +159,13 @@ $(document).ready(function () {
         $('#font').val(fs.font || DEFAULT_FONT);
         // Set font size
         $('#font_size').val(fs.size);
+        $('#font_auto_scale').prop('checked', !!fs.auto_scale);
+        toggleFontSize();
         // Set alignment
         $('input[name=font_align]').prop('checked', false);
         $('input[name=font_align][value="' + fs.align + '"]').prop('checked', true).trigger("change");
         // Set line spacing
-        $('input[name=line_spacing]').prop('checked', false);
-        $('input[name=line_spacing][value="' + fs.line_spacing + '"]').prop('checked', true).trigger("change");
+        $('#line_spacing').val(fs.line_spacing || '100');
         // Set font inversion
         $('#font_inverted').prop('checked', fs.inverted);
     });
@@ -186,6 +188,10 @@ $(document).ready(function () {
         $('#lineSelect').val(lineIdx).trigger('change');
     });
 });
+
+function toggleFontSize() {
+    $('#font_size').prop('disabled', $('#font_auto_scale').is(':checked'));
+}
 
 function getModelFromSelectedPrinter(printerSelect) {
     if (printerSelect && printerSelect.value && window.available_printers) {
@@ -324,7 +330,7 @@ function gen_label(preview = true, cut_once = false) {
         url: url,
         contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
         data: data,
-        success: function (data) {
+        success: function (data, _textStatus, xhr) {
             // Check if response is JSON and has a key "success"
             const status = typeof data === "object" &&
                 data !== null &&
@@ -333,6 +339,7 @@ function gen_label(preview = true, cut_once = false) {
                 'error' : 'success';
             setStatus({ type: type, 'status': status });
             if (preview) {
+                updateAutoFontSizes(xhr.getResponseHeader('X-Font-Sizes'));
                 updatePreview(data);
             }
         },
@@ -342,6 +349,25 @@ function gen_label(preview = true, cut_once = false) {
             setStatus({ type: type, 'status': 'error', 'message': message }, text);
         }
     });
+}
+
+function updateAutoFontSizes(header) {
+    if (!header) return;
+    let sizes;
+    try {
+        sizes = JSON.parse(header);
+    } catch (_error) {
+        return;
+    }
+    sizes.forEach(function (size, index) {
+        if (fontSettingsPerLine[index] && fontSettingsPerLine[index].auto_scale) {
+            fontSettingsPerLine[index].size = size;
+        }
+    });
+    const selectedLine = parseInt($('#lineSelect').val(), 10);
+    if (!isNaN(selectedLine) && fontSettingsPerLine[selectedLine] && fontSettingsPerLine[selectedLine].auto_scale) {
+        $('#font_size').val(fontSettingsPerLine[selectedLine].size);
+    }
 }
 
 function print(cut_once = false) {
@@ -481,6 +507,7 @@ new Dropzone("#image-dropzone", {
             'error' : 'success';
         setStatus({ type: dropZoneMode, status: status });
         if (dropZoneMode == 'preview') {
+            updateAutoFontSizes(file.xhr && file.xhr.getResponseHeader('X-Font-Sizes'));
             updatePreview(response);
         }
         file.status = Dropzone.QUEUED;
@@ -1079,7 +1106,7 @@ function resetSettings() {
     if (confirm('Really reset all label settings to default?')) {
         localStorage.removeItem(LS_KEY);
         // Reset font settings
-        window.fontSettingsPerLine = {};
+        window.fontSettingsPerLine = [];
         set_all_inputs_default(true);
         saveAllSettingsToLocalStorage();
         location.reload();
@@ -1114,6 +1141,7 @@ function init2() {
     // Restore settings on load
     set_all_inputs_default();
     restoreAllSettingsFromLocalStorage();
+    toggleFontSize();
 
     // Save on change
     $(document).on('change input', 'input, select, textarea', function () {
