@@ -12,13 +12,14 @@ def test_code_content_expands_templates(barcode_type):
     label = SimpleLabel(
         width=600,
         height=200,
+        label_margin=(8, 8, 8, 8),
         text=[{'text': 'ignored'}],
         label_content=LabelContent.QRCODE_ONLY,
         barcode_type=barcode_type,
         code_text='item-{{counter:10}}-{{datetime:%Y}}',
         counter=2,
         timestamp=1704067200,
-        image_fit=True,
+        code_fit=True,
     )
 
     for counter in (2, 3):

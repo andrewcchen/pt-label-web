@@ -16,7 +16,7 @@ def test_datamatrix_round_trip(value, orientation):
         label_orientation=orientation,
         barcode_type='DATAMATRIX',
         code_text=value,
-        image_fit=True,
+        code_fit=True,
     )
 
     result = zxingcpp.read_barcode(render_label_bitmap(label))

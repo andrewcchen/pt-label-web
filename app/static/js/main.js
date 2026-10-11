@@ -219,8 +219,9 @@ function formData() {
         margin_right: parseInt($('#margin_right').val(), 10) || 0,
         print_type: $('input[name=print_type]:checked').val(),
         barcode_type: $('#barcode_type').val(),
-        qrcode_size: parseInt($('#qrcode_size').val(), 10) || 0,
+        qrcode_size: parseInt($('#qrcode_size').data('manual-size') ?? $('#qrcode_size').val(), 10) || 0,
         qrcode_correction: $('#qrcode_correction option:selected').val(),
+        code_fit: $('#code_fit').is(':checked') ? 1 : 0,
         image_bw_threshold: parseInt($('#image_bw_threshold').val(), 10) || 0,
         image_mode: $('input[name=image_mode]:checked').val(),
         image_fit: $('#image_fit').is(':checked') ? 1 : 0,
@@ -347,6 +348,10 @@ function gen_label(preview = true) {
             setStatus({ type: type, 'status': status });
             if (preview) {
                 updateAutoFontSizes(xhr.getResponseHeader('X-Font-Sizes'));
+                const cellSize = xhr.getResponseHeader('X-Code-Cell-Size');
+                if (cellSize && $('#code_fit').is(':checked') && dataJson === lastPreviewData) {
+                    $('#qrcode_size').val(cellSize);
+                }
                 updatePreview(data);
             }
         },
@@ -382,6 +387,7 @@ function print() {
 }
 
 function preview() {
+    toggleQrSettings();
     gen_label(true);
 }
 
@@ -536,6 +542,14 @@ new Dropzone("#image-dropzone", {
 
 
 function toggleQrSettings() {
+    const cellSize = $('#qrcode_size');
+    const autoFit = $('#code_fit').is(':checked');
+    if (autoFit && cellSize.data('manual-size') === undefined) {
+        cellSize.data('manual-size', cellSize.val());
+    } else if (!autoFit && cellSize.data('manual-size') !== undefined) {
+        cellSize.val(cellSize.data('manual-size')).removeData('manual-size');
+    }
+    cellSize.prop('disabled', autoFit);
     var barcodeType = document.getElementById('barcode_type');
     var qrCodeSize = document.getElementById('qrCodeSizeContainer');
     var qrCodeCorrection = document.getElementById('qrCodeCorrectionContainer');
@@ -699,6 +713,7 @@ function saveAllSettingsToLocalStorage() {
         }
     });
     // Save fontSettingsPerLine if available
+    data.qrcode_size = $('#qrcode_size').data('manual-size') ?? $('#qrcode_size').val();
     if (window.fontSettingsPerLine) {
         data['fontSettingsPerLine'] = JSON.stringify(window.fontSettingsPerLine);
     }
@@ -770,7 +785,9 @@ function restoreAllSettingsFromLocalStorage() {
 
     let data;
     try { data = JSON.parse(raw); } catch { return; }
+    lastPreviewData = null;
     current_restoring = true;
+    $('#qrcode_size').removeData('manual-size');
     $('input, select, textarea').each(function () {
         const key = this.type === 'radio' && this.name.length > 0 ? this.name : this.id;
         if (!(key in data)) return;
@@ -1133,6 +1150,7 @@ function resetSettings() {
 }
 
 function set_all_inputs_default(force = false) {
+    $('#qrcode_size').removeData('manual-size');
     // Iterate over those <input> that have a data-default propery and set the value if empty
     $('input[data-default], select[data-default], textarea[data-default]').each(function () {
         if (this.type === 'checkbox' || this.type === 'radio') {

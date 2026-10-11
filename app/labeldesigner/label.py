@@ -58,6 +58,7 @@ class SimpleLabel:
         timestamp: int = 0,
         counter: int = 0,
         code_text: str = '',
+        code_fit: bool = False,
     ):
         """Initialize a SimpleLabel object."""
         # Input validation
@@ -67,10 +68,11 @@ class SimpleLabel:
             raise ValueError("Border thickness must be non-negative.")
         if qr_size < 1:
             raise ValueError("QR size must be positive.")
-        if image_scaling_factor <= 0:
-            raise ValueError("Image scaling factor must be > 0.")
-        if image_rotation < 0 or image_rotation > 360:
-            raise ValueError("Image rotation must be between 0 and 360 inclusive.")
+        if label_content not in (LabelContent.QRCODE_ONLY, LabelContent.TEXT_QRCODE):
+            if image_scaling_factor <= 0:
+                raise ValueError("Image scaling factor must be > 0.")
+            if image_rotation < 0 or image_rotation > 360:
+                raise ValueError("Image rotation must be between 0 and 360 inclusive.")
         self._width = width
         self._height = height
         self.label_content = label_content
@@ -84,6 +86,8 @@ class SimpleLabel:
         self.qr_correction = qr_correction
         self._image = image
         self._image_fit = image_fit
+        self._code_fit = code_fit
+        self.rendered_code_cell_size = None
         self._image_crop = image_crop
         self._image_scaling_factor = image_scaling_factor
         self._image_rotation = image_rotation
@@ -212,7 +216,8 @@ class SimpleLabel:
         self.process_templates()
 
         # Generate codes or load images if requested
-        if self._label_content in (LabelContent.QRCODE_ONLY, LabelContent.TEXT_QRCODE):
+        is_code = self._label_content in (LabelContent.QRCODE_ONLY, LabelContent.TEXT_QRCODE)
+        if is_code:
             if self.barcode_type == "QR":
                 img = self._generate_qr()
             elif self.barcode_type == "DATAMATRIX":
@@ -227,9 +232,29 @@ class SimpleLabel:
         # Initialize dimensions
         width, height = self._width, self._height
         margin_left, margin_right, margin_top, margin_bottom = self._label_margin
+        is_matrix_code = self.barcode_type in ('QR', 'DATAMATRIX')
+        code_cell_size = self._qr_size if is_matrix_code else 4
+        self.rendered_code_cell_size = None
 
-        # Resize image to fit if image_fit is True
-        if img is not None:
+        # Fit codes independently of image settings.
+        if img is not None and is_code:
+            if self._code_fit:
+                available = max(width - margin_left - margin_right, 1) if self._label_orientation == LabelOrientation.ROTATED else max(height - margin_top - margin_bottom, 1)
+                fixed_size = img.width if self._label_orientation == LabelOrientation.ROTATED else img.height
+                if is_matrix_code:
+                    cells = fixed_size // self._qr_size
+                    code_cell_size = available // cells
+                    if code_cell_size < 1:
+                        raise ValueError('Code is too dense to fit the label at one pixel per cell.')
+                    new_size = (cells * code_cell_size, cells * code_cell_size)
+                else:
+                    scale = available / fixed_size
+                    new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+                img = img.resize(new_size, Image.Resampling.NEAREST)
+            img_width, img_height = img.size
+            if is_matrix_code:
+                self.rendered_code_cell_size = code_cell_size
+        elif img is not None:
             if self._image_crop:
                 img = self._crop_image_to_content(img)
 
@@ -289,19 +314,21 @@ class SimpleLabel:
             bboxes = []
             textsize = (0, 0, 0, 0)
 
+        code_text_gap = code_cell_size if is_code and self.want_text(img) else 0
+
         # Adjust the tape length to fit the content.
         if self._label_orientation == LabelOrientation.ROTATED:
-            height = img_height + textsize[3] - textsize[1] + margin_top + margin_bottom
+            height = img_height + code_text_gap + textsize[3] - textsize[1] + margin_top + margin_bottom
         elif self._label_orientation == LabelOrientation.STANDARD:
-            width = img_width + textsize[2] + margin_left + margin_right
+            width = img_width + code_text_gap + textsize[2] + margin_left + margin_right
 
         if self._label_orientation == LabelOrientation.ROTATED:
             vertical_offset_text = margin_top
-            if self.need_image_text_distance:
+            if self.need_image_text_distance and not is_code:
                 # Slightly increase the margin to get some distance from the QR code.
                 vertical_offset_text *= 1.25
 
-            vertical_offset_text += img_height
+            vertical_offset_text += img_height + code_text_gap
             horizontal_offset_text = max((width - textsize[2])//2, 0)
             horizontal_offset_image = (width - img_width)//2
             vertical_offset_image = margin_top
@@ -310,11 +337,11 @@ class SimpleLabel:
             vertical_offset_text = (height - textsize[3])//2
             vertical_offset_text += (margin_top - margin_bottom)//2
             horizontal_offset_text = margin_left
-            if self.need_image_text_distance:
+            if self.need_image_text_distance and not is_code:
                 # Slightly increase the margin to get some distance from the QR code.
                 horizontal_offset_text *= 1.25
 
-            horizontal_offset_text += img_width
+            horizontal_offset_text += img_width + code_text_gap
             horizontal_offset_image = margin_left
             vertical_offset_image = (height - img_height)//2
 
@@ -418,8 +445,8 @@ class SimpleLabel:
 
     def _generate_datamatrix(self):
         text = self._code_text or "\n".join(line.get('text', '') for line in self.text)
-        code = zxingcpp.create_barcode(text, zxingcpp.BarcodeFormat.DataMatrix)
-        return Image.fromarray(code.to_image(scale=self._qr_size))
+        code = zxingcpp.create_barcode(text, zxingcpp.BarcodeFormat.DataMatrix, force_square=True)
+        return Image.fromarray(code.to_image(scale=self._qr_size, add_quiet_zones=False))
 
     def _generate_qr(self):
         qr = QRCode(
@@ -436,7 +463,7 @@ class SimpleLabel:
         qr.add_data(text.encode("utf-8-sig"))
         qr.make(fit=True)
         qr_img = qr.make_image(fill_color='black', back_color="white")
-        return qr_img
+        return qr_img.get_image()
 
     def _draw_text(self, img = None, bboxes = [], text_offset = (0, 0)):
         """

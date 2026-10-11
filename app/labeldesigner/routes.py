@@ -389,6 +389,8 @@ def preview_from_image():
     response = make_response(response_data)
     response.headers.set('Content-type', content_type)
     response.headers.set('X-Font-Sizes', json.dumps([line.get('size') for line in label.text]))
+    if label.rendered_code_cell_size is not None:
+        response.headers.set('X-Code-Cell-Size', str(label.rendered_code_cell_size))
     return response
 
 
@@ -479,6 +481,7 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         'barcode_type': d.get('barcode_type', 'QR'),
         'qrcode_size': int(d.get('qrcode_size', 10)),
         'qrcode_correction': d.get('qrcode_correction', 'L'),
+        'code_fit': int(d.get('code_fit', 1)) > 0,
         'image_mode': d.get('image_mode', "grayscale"),
         'image_bw_threshold': int(d.get('image_bw_threshold', 70)),
         'image_fit': int(d.get('image_fit', 1)) > 0,
@@ -596,6 +599,7 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         barcode_type=context['barcode_type'],
         qr_size=context['qrcode_size'],
         qr_correction=context['qrcode_correction'],
+        code_fit=context['code_fit'],
         image=image,
         image_fit=context['image_fit'],
         image_crop=context['image_crop'],

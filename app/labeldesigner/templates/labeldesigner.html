@@ -162,7 +162,12 @@
                                 <label for="qrcode_size" style="margin-top: 10px; margin-bottom: 0">Cell Size (pixels):</label>
                                 <input id="qrcode_size" class="form-control" type="number" min="1" data-default="{{default_qr_size}}"
                                     onChange="preview()"
-                                    required>
+                                    required disabled>
+                            </div>
+
+                            <div class="form-check my-2">
+                                <input class="form-check-input" type="checkbox" value="1" onchange="preview()" id="code_fit" data-default="1" checked>
+                                <label class="form-check-label" for="code_fit">Auto-fit code to label</label>
                             </div>
 
                             <div id="qrCodeCorrectionContainer">
