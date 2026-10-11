@@ -534,7 +534,7 @@ function toggleQrSettings() {
     var qrCodeSize = document.getElementById('qrCodeSizeContainer');
     var qrCodeCorrection = document.getElementById('qrCodeCorrectionContainer');
     if (barcodeType) {
-        qrCodeSize.style.display = (barcodeType.value === 'QR') ? '' : 'none';
+        qrCodeSize.style.display = (barcodeType.value === 'QR' || barcodeType.value === 'DATAMATRIX') ? '' : 'none';
         qrCodeCorrection.style.display = (barcodeType.value === 'QR') ? '' : 'none';
     }
 }
@@ -550,7 +550,7 @@ function get_barcode_types() {
                 barcodes.forEach((barcode, idx) => {
                     const opt = document.createElement('option');
                     opt.value = barcode;
-                    opt.textContent = barcode;
+                    opt.textContent = barcode === 'DATAMATRIX' ? 'Data Matrix' : barcode;
                     if (idx === 0) {
                         opt.selected = true;
                         // Set data-default="1" for first element

@@ -355,8 +355,7 @@ def repo_print():
 
 @bp.route('/api/barcodes', methods=['GET'])
 def get_barcodes():
-    barcodes = [code.upper() for code in barcode.PROVIDED_BARCODES]
-    barcodes.insert(0, 'QR')  # Add QR at the top
+    barcodes = ['QR', 'DATAMATRIX'] + [code.upper() for code in barcode.PROVIDED_BARCODES]
     return {'barcodes': barcodes}
 
 

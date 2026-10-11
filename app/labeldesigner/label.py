@@ -5,6 +5,7 @@ from qrcode import QRCode, constants
 from PIL import Image, ImageDraw, ImageFont, ImageChops
 import logging
 import barcode
+import zxingcpp
 from barcode.writer import ImageWriter
 import datetime
 import re
@@ -218,6 +219,8 @@ class SimpleLabel:
         if self._label_content in (LabelContent.QRCODE_ONLY, LabelContent.TEXT_QRCODE):
             if self.barcode_type == "QR":
                 img = self._generate_qr()
+            elif self.barcode_type == "DATAMATRIX":
+                img = self._generate_datamatrix()
             else:
                 img = self._generate_barcode()
         elif self._label_content in (LabelContent.IMAGE_BW, LabelContent.IMAGE_GRAYSCALE, LabelContent.IMAGE_COLORED):
@@ -416,6 +419,11 @@ class SimpleLabel:
             value = self.text[0].get('text', '') if self.text and self.text[0].get('text', '') else ''
         my_barcode = barcode_generator(value, writer=ImageWriter())
         return my_barcode.render()
+
+    def _generate_datamatrix(self):
+        text = self._code_text or "\n".join(line.get('text', '') for line in self.text)
+        code = zxingcpp.create_barcode(text, zxingcpp.BarcodeFormat.DataMatrix)
+        return Image.fromarray(code.to_image(scale=self._qr_size))
 
     def _generate_qr(self):
         qr = QRCode(

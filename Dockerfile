@@ -33,7 +33,9 @@ RUN if [ $TARGETARCH == "arm" ]; then \
     ; fi
 
 RUN apk update --no-cache && \
+    apk add --no-cache --virtual .barcode-build-deps g++ cmake ninja && \
     apk add --no-cache \
+    libstdc++ \
     git \
     ttf-dejavu \
     ttf-liberation \
@@ -45,7 +47,8 @@ RUN apk update --no-cache && \
     font-noto \
     poppler-utils \
     bash && \
-    pip3 install -r requirements.txt
+    pip3 install -r requirements.txt && \
+    apk del .barcode-build-deps
 
 RUN if [ $TARGETARCH == "arm" ]; then \
         # Clean up build dependencies to reduce image size
