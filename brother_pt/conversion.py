@@ -20,6 +20,7 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
     page_options = kwargs.pop('page_options', None)
     if page_options is not None and len(page_options) != len(images):
         raise ValueError("page_options must contain one entry per image")
+    page_options = [{**kwargs, **options} for options in page_options] if page_options is not None else [kwargs] * len(images)
 
     dots_printable = label_spec.dots_printable
     right_margin_dots = label_spec.offset_r
@@ -27,12 +28,16 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
 
     qlr.add_switch_mode()
 
+    cuts = [options.get('cut', True) for options in page_options]
+    cut_interval = 1
+    if 1 < len(images) <= 99 and not any(cuts[:-1]) and cuts[-1]:
+        cut_interval = len(images)
+    qlr.add_cut_interval(cut_interval)
+
     page_data = []
     logger.info("Rasterizing %d pages", len(images))
     for i, image in enumerate(images):
-        options = dict(kwargs)
-        if page_options is not None:
-            options.update(page_options[i])
+        options = page_options[i]
         cut = options.get('cut', True)
         dither = options.get('dither', False)
         compress = options.get('compress', False)
@@ -89,11 +94,11 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
         qlr.mlength = 0
         qlr.pquality = int(hq)
         qlr.add_media_and_quality(im.size[1])
-        qlr.add_autocut(cut)
+        qlr.add_autocut(cut or cut_interval > 1)
         qlr.half_cut = options.get('half_cut', False)
         qlr.hires = hires
         qlr.cut_at_end = cut
-        qlr.no_chain_printing = not chain_print
+        qlr.no_chain_printing = not chain_print and cut
         qlr.add_expanded_mode()
         qlr.add_margins(label_spec.feed_margin * (2 if hires else 1))
         qlr.add_compression(compress)

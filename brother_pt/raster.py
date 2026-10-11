@@ -119,6 +119,9 @@ class BrotherQLRaster(object):
         self.data += b'\x1B\x69\x4D' # ESC i M
         self.data += bytes([autocut << 6])
 
+    def add_cut_interval(self, pages=1):
+        self.data += b'\x1B\x69\x41' + bytes([pages]) # ESC i A
+
     def add_expanded_mode(self):
         self.data += b'\x1B\x69\x4B' # ESC i K
         flags = 0x00
