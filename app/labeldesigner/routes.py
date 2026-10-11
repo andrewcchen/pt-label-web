@@ -325,9 +325,7 @@ def repo_print():
         printer = PrinterQueue(model=model, device_specifier=device, label_size=label_size)
 
         # Determine printing options
-        print_count = int(request.values.get('print_count') or data.get('print_count') or 1)
-        if print_count < 1:
-            raise ValueError("print_count must be greater than 0")
+        print_count = label_print_count({**data, 'print_count': request.values.get('print_count') or data.get('print_count') or 1})
         cut_once = int(request.values.get('cut_once') or data.get('cut_once') or 0) == 1
         half_cut = int(request.values.get('half_cut', data.get('half_cut', 0))) == 1
         no_cut = int(request.values.get('no_cut', data.get('no_cut', 0))) == 1
@@ -413,9 +411,7 @@ def print_label():
             if isinstance(level, int):
                 current_app.logger.setLevel(level)
         printer = create_printer_from_request(request)
-        print_count = int(request.values.get('print_count', 1))
-        if print_count < 1:
-            raise ValueError("print_count must be greater than 0")
+        print_count = label_print_count(request.values)
         cut_once = int(request.values.get('cut_once', 0)) == 1
         half_cut = int(request.values.get('half_cut', 0)) == 1
         no_cut = int(request.values.get('no_cut', 0)) == 1
@@ -458,6 +454,25 @@ def create_printer_from_request(request: Request):
         device_specifier=device,
         label_size=label_size
     )
+
+
+def spreadsheet_rows(data) -> list[list[str]] | None:
+    if not int(data.get('spreadsheet_mode', 0)):
+        return None
+    rows = data.get('spreadsheet_data', '[]')
+    if isinstance(rows, str):
+        rows = json.loads(rows)
+    if not isinstance(rows, list) or not rows or any(not isinstance(row, list) or not row or any(not isinstance(cell, str) for cell in row) for row in rows):
+        raise ValueError("Spreadsheet must contain at least one row of text cells")
+    return rows
+
+
+def label_print_count(data) -> int:
+    rows = spreadsheet_rows(data)
+    count = len(rows) if rows is not None else int(data.get('print_count', 1))
+    if count < 1:
+        raise ValueError("print_count must be greater than 0")
+    return count
 
 
 def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
@@ -583,6 +598,7 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
             except Exception:
                 current_app.logger.exception('Failed to load repository image')
 
+    rows = spreadsheet_rows(d)
     return SimpleLabel(
         width=width,
         height=height,
@@ -611,7 +627,8 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         border_color=border_color,
         timestamp=context['timestamp'],
         counter=counter,
-        code_text=context['code_text']
+        code_text=context['code_text'],
+        spreadsheet_row=rows[counter] if rows is not None else None,
     )
 
 

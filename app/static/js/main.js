@@ -208,9 +208,102 @@ function updateCutOptions() {
     $('#cut_once, #half_cut, #chain_print').prop('disabled', $('#no_cut').is(':checked'));
 }
 
+function parseSpreadsheetPaste(text) {
+    text = text.replace(/\r\n?/g, '\n');
+    const rows = [[]];
+    let cell = '';
+    let quoted = false;
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (quoted) {
+            if (char === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+            else if (char === '"') quoted = false;
+            else cell += char === '\n' ? ' ' : char;
+        } else if (char === '"' && cell === '') {
+            quoted = true;
+        } else if (char === '\t' || char === '\n') {
+            rows[rows.length - 1].push(cell);
+            cell = '';
+            if (char === '\n') rows.push([]);
+        } else {
+            cell += char;
+        }
+    }
+    rows[rows.length - 1].push(cell);
+    if (text.endsWith('\n') && !quoted) rows.pop();
+    return rows;
+}
+
+function spreadsheetRows() {
+    const input = $('#spreadsheet_data');
+    try {
+        return JSON.parse(input.val());
+    } catch {
+        input.val(input.attr('data-default'));
+        return JSON.parse(input.val());
+    }
+}
+
+function updateSpreadsheetMode() {
+    const enabled = $('#spreadsheet_mode').is(':checked');
+    $('#spreadsheetEditor').prop('hidden', !enabled);
+    const count = $('#print_count');
+    if (!enabled && count.prop('disabled')) count.val(1);
+    count.prop('disabled', enabled);
+    if (enabled) count.val(spreadsheetRows().length);
+}
+
+function renderSpreadsheet() {
+    const rows = spreadsheetRows();
+    const table = $('#spreadsheetTable').empty();
+    const header = $('<tr>').append($('<th>').text('#'));
+    rows[0].forEach((_, column) => header.append($('<th>').text('{{' + (column + 1) + '}}')));
+    header.append($('<th>'));
+    table.append($('<thead>').append(header));
+    const body = $('<tbody>');
+    rows.forEach((row, index) => {
+        const tr = $('<tr>').append($('<th>').text(index + 1));
+        row.forEach((cell, column) => {
+            const input = $('<input type="text" class="form-control form-control-sm">')
+                .val(cell).attr('aria-label', 'Row ' + (index + 1) + ', column ' + (column + 1));
+            input.on('input', function () {
+                row[column] = this.value;
+                saveSpreadsheet(rows, false);
+            });
+            input.on('paste', function (event) {
+                const text = event.originalEvent.clipboardData.getData('text/plain');
+                if (!/[\t\r\n]/.test(text)) return;
+                event.preventDefault();
+                const pasted = parseSpreadsheetPaste(text);
+                const width = Math.max(rows[0].length, column + Math.max(...pasted.map(row => row.length)));
+                while (rows.length < index + pasted.length) rows.push([]);
+                rows.forEach(row => { while (row.length < width) row.push(''); });
+                pasted.forEach((row, r) => row.forEach((cell, c) => { rows[index + r][column + c] = cell; }));
+                saveSpreadsheet(rows);
+            });
+            tr.append($('<td>').append(input));
+        });
+        tr.append($('<td>').append($('<button type="button" class="btn btn-outline-secondary btn-sm">')
+            .text('×').attr('aria-label', 'Delete row ' + (index + 1)).prop('disabled', rows.length === 1)
+            .on('click', () => { rows.splice(index, 1); saveSpreadsheet(rows); })));
+        body.append(tr);
+    });
+    table.append(body);
+    updateSpreadsheetMode();
+}
+
+function saveSpreadsheet(rows, render = true) {
+    $('#spreadsheet_data').val(JSON.stringify(rows));
+    if (render) renderSpreadsheet();
+    $('#spreadsheet_data').trigger('change');
+    preview();
+}
+
 function formData() {
     data = {
         text: JSON.stringify(fontSettingsPerLine),
+        spreadsheet_mode: $('#spreadsheet_mode').is(':checked') ? 1 : 0,
+        spreadsheet_data: $('#spreadsheet_data').val(),
         label_size: $('#label_size').val(),
         orientation: $('input[name=orientation]:checked').val(),
         margin_top: parseInt($('#margin_top').val(), 10) || 0,
@@ -744,8 +837,6 @@ function saveAllSettingsToLocalStorage() {
     } catch { history = []; }
     // Only push if different from last
     if (history.length === 0 || JSON.stringify(history[history.length - 1]) !== this_settings) {
-        // Log difference between the current and the previous state when saving history
-        console.debug(compareObjects(history[history.length - 1], data));
         history.push(data);
         if (history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
         localStorage.setItem(LS_HISTORY_KEY, JSON.stringify(history));
@@ -759,8 +850,6 @@ function undoSettings() {
         history = JSON.parse(localStorage.getItem(LS_HISTORY_KEY)) || [];
     } catch { history = []; }
     if (history.length < 2) return; // nothing to undo
-    // Log difference between the current and the previous state when undoing
-    console.debug(compareObjects(history[history.length - 1], history[history.length - 2]));
     // Remove current state
     history.pop();
     const prev = history[history.length - 1];
@@ -787,6 +876,9 @@ function restoreAllSettingsFromLocalStorage() {
     try { data = JSON.parse(raw); } catch { return; }
     lastPreviewData = null;
     current_restoring = true;
+    data.spreadsheet_mode ??= false;
+    data.spreadsheet_data ??= $('#spreadsheet_data').attr('data-default');
+    $('#print_count').prop('disabled', false);
     $('#qrcode_size').removeData('manual-size');
     $('input, select, textarea').each(function () {
         const key = this.type === 'radio' && this.name.length > 0 ? this.name : this.id;
@@ -803,17 +895,16 @@ function restoreAllSettingsFromLocalStorage() {
             }
         } else {
             this.value = data[key];
-            console.log(key + ": " + data[key]);
         }
     });
 
     updateCutOptions();
+    renderSpreadsheet();
 
     // Restore fontSettingsPerLine if available
     if (data['fontSettingsPerLine'] && window.fontSettingsPerLine) {
         try {
             window.fontSettingsPerLine = JSON.parse(data['fontSettingsPerLine']);
-            console.log(window.fontSettingsPerLine);
             $('#lineSelect').val(0);
             preview();
         } catch { }
@@ -1161,7 +1252,7 @@ function set_all_inputs_default(force = false) {
 
         }
         else if (!$(this).val() || force) {
-            $(this).val($(this).data('default'));
+            $(this).val($(this).attr('data-default'));
         }
     });
 }
@@ -1179,13 +1270,29 @@ function init2() {
     set_all_inputs_default();
     restoreAllSettingsFromLocalStorage();
     toggleFontSize();
+    renderSpreadsheet();
+    $('#spreadsheet_mode').on('change', function () { updateSpreadsheetMode(); preview(); });
+    $('#spreadsheetAddRow').on('click', function () {
+        const rows = spreadsheetRows();
+        rows.push(rows[0].map(() => ''));
+        saveSpreadsheet(rows);
+    });
+    $('#spreadsheetAddColumn').on('click', function () {
+        const rows = spreadsheetRows();
+        rows.forEach(row => row.push(''));
+        saveSpreadsheet(rows);
+    });
+    $('#spreadsheetRemoveColumn').on('click', function () {
+        const rows = spreadsheetRows();
+        if (rows[0].length > 1) { rows.forEach(row => row.pop()); saveSpreadsheet(rows); }
+    });
     updateCutOptions();
     $('#no_cut').on('change', updateCutOptions);
 
     // Save on change
     $(document).on('change input', 'input, select, textarea', function () {
-        // Skip when this was caused by the #lineSelect <select>
-        if ($(this).is('#lineSelect')) return;
+        // Spreadsheet cells save through #spreadsheet_data; line selection is not a setting.
+        if ($(this).is('#lineSelect, #spreadsheetTable input')) return;
         setFontSettingsPerLine();
         saveAllSettingsToLocalStorage();
     });

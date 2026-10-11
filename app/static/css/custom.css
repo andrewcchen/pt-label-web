@@ -88,3 +88,11 @@ label {
         margin-top: 0.5rem;
     }
 }
+
+#spreadsheetTable input {
+    min-width: 100px;
+}
+
+#print_count:disabled {
+    opacity: 0.6;
+}

@@ -362,11 +362,24 @@
             <label for="label_text" style="margin-top: 10px; margin-bottom: 0">Label Text:</label>
             <textarea rows="7" id="label_text" class="form-control" onChange="preview()" onInput="preview()"
                 data-default=""></textarea>
-            <div class="mt-2">
+            <div class="mt-2 d-flex align-items-center gap-3">
                 <button type="button" id="symbolPickerBtn" class="btn btn-outline-secondary btn-sm" title="Insert symbol">
                     <span class="fas fa-star" aria-hidden="true"></span>
                     &nbsp;▾
                 </button>
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" id="spreadsheet_mode" data-default="0">
+                    <label class="form-check-label" for="spreadsheet_mode">Spreadsheet mode</label>
+                </div>
+            </div>
+            <div id="spreadsheetEditor" class="mt-2" hidden>
+                <textarea id="spreadsheet_data" hidden data-default='[["", ""]]'>[["", ""]]</textarea>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm mb-2" id="spreadsheetTable" aria-label="Spreadsheet editor"></table>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="spreadsheetAddRow">Add row</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="spreadsheetAddColumn">Add column</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="spreadsheetRemoveColumn">Remove last column</button>
             </div>
             <!-- Template info box -->
             <div class="card mt-2" style="font-size: 0.95em;">
@@ -378,9 +391,9 @@
                 </div>
                 <div id="templateInfoBox" class="collapse">
                     <div class="card-body pt-2 pb-2">
-                        <strong>Templates</strong> allow you to insert dynamic content into your label text and code content. Supported
-                        templates:<br>
+                        <strong>Templates</strong> allow you to insert dynamic content into your label text and code content. Supported templates:<br>
                         <ul style="margin-bottom: 0.5em;">
+                            <li><code>{{'{{1}}'}}</code>, <code>{{'{{2}}'}}</code>, etc. — Selects columns in spreadsheet mode. One label prints per row; preview shows the first row. Hint: paste cells from a spreadsheet into the editor.</li>
                             <li><code>{{'{{datetime:<format>}}'}}</code> — Inserts the current date and time when printing.
                                 You can customize the format using <a href="https://strftime.org/" target="_blank"
                                     rel="noopener">strftime</a> options, e.g., <code>%H:%M:%S %d.%m.%Y</code>.</li>

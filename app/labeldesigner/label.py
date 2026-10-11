@@ -59,6 +59,7 @@ class SimpleLabel:
         counter: int = 0,
         code_text: str = '',
         code_fit: bool = False,
+        spreadsheet_row: list[str] | None = None,
     ):
         """Initialize a SimpleLabel object."""
         # Input validation
@@ -96,6 +97,7 @@ class SimpleLabel:
         self._border_distance = border_distance
         self._border_color = border_color
         self._counter = counter
+        self.spreadsheet_row = spreadsheet_row
         self._timestamp = timestamp
         self.input_code_text = code_text
         self._code_text = code_text
@@ -207,6 +209,12 @@ class SimpleLabel:
                     line['shift'] = True
                 return ''.join(random.choices(string.ascii_letters + string.digits + string.punctuation, k=length))
             text_val = re.sub(r"\{\{random(?:\:(\d+))?(?:\:(s(hift)?))?\}\}", random_replacer, text_val)
+
+            if self.spreadsheet_row is not None:
+                def column_replacer(match: re.Match[str]) -> str:
+                    index = int(match.group(1)) - 1
+                    return self.spreadsheet_row[index] if index < len(self.spreadsheet_row) else ''
+                text_val = re.sub(r"\{\{([1-9]\d*)\}\}", column_replacer, text_val)
 
             line['text'] = text_val
         self._code_text = code_line['text']
