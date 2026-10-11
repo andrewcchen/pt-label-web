@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 from .generic import BrotherQLBackendGeneric
-from brother_ql.models import ALL_MODELS
+from brother_pt.models import ALL_MODELS
 
 BROTHER_VID = 0x04f9
 PTOUCH_PRODUCT_IDS = {model.product_id for model in ALL_MODELS}

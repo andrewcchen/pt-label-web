@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import logging
-from brother_ql.models import ALL_MODELS
+from brother_pt.models import ALL_MODELS
 
 logger = logging.getLogger(__name__)
 

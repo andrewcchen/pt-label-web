@@ -3,9 +3,9 @@
 import logging
 import time
 
-from brother_ql.backends import backend_factory, guess_backend
-from brother_ql.backends.generic import BrotherQLBackendGeneric
-from brother_ql.reader import interpret_response
+from brother_pt.backends import backend_factory, guess_backend
+from brother_pt.backends.generic import BrotherQLBackendGeneric
+from brother_pt.reader import interpret_response
 
 logger = logging.getLogger(__name__)
 

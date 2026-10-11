@@ -1,7 +1,7 @@
 services:
-  brother_ql_web:
+  pt-label-web:
     build: .
-    container_name: brother_ql_web
+    container_name: pt-label-web
     restart: always
     ports:
       - "8013:8013"

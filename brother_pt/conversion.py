@@ -5,8 +5,8 @@ import logging
 from PIL import Image
 import PIL.ImageOps
 
-from brother_ql.labels import ALL_LABELS
-from brother_ql.raster import BrotherQLRaster
+from brother_pt.labels import ALL_LABELS
+from brother_pt.raster import BrotherQLRaster
 
 logger = logging.getLogger(__name__)
 

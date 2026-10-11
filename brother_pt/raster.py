@@ -13,7 +13,7 @@ import logging
 import packbits
 from PIL import Image
 
-from brother_ql.models import ALL_MODELS
+from brother_pt.models import ALL_MODELS
 
 from . import BrotherQLUnknownModel, BrotherQLRasterError
 from io import BytesIO

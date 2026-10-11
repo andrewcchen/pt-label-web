@@ -25,7 +25,7 @@ function parseDataUrl(dataUrl) {
 // IndexedDB helpers for storing image base64 data (so we avoid large localStorage entries)
 function _openImageDB() {
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open('brother_ql_images', 1);
+        const req = indexedDB.open('brother_pt_images', 1);
         req.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');

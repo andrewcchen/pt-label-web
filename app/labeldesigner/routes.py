@@ -9,7 +9,7 @@ from app import FONTS
 from PIL import Image
 from werkzeug.datastructures import FileStorage
 from .printer import PrinterQueue, get_ptr_status, render_label_bitmap
-from brother_ql.labels import ALL_LABELS
+from brother_pt.labels import ALL_LABELS
 from .label import SimpleLabel, LabelContent, LabelOrientation
 from flask import Request, current_app, json, jsonify, render_template, request, make_response
 from werkzeug.utils import secure_filename

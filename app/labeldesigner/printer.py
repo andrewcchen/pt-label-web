@@ -4,12 +4,12 @@ import os
 import socket
 import time
 from urllib.parse import urlparse
-from brother_ql.backends.helpers import send
-from brother_ql import BrotherQLRaster
-from brother_ql.conversion import convert
-from brother_ql.backends.helpers import get_status
-from brother_ql.backends import backend_factory, guess_backend
-from brother_ql.reader import interpret_response
+from brother_pt.backends.helpers import send
+from brother_pt import BrotherQLRaster
+from brother_pt.conversion import convert
+from brother_pt.backends.helpers import get_status
+from brother_pt.backends import backend_factory, guess_backend
+from brother_pt.reader import interpret_response
 from flask import Config
 from PIL import Image
 from .label import LabelOrientation
