@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def render_label_bitmap(label):
-    return label.generate(rotate=False).convert('1', dither=Image.Dither.NONE)
+    return label.generate().convert('1', dither=Image.Dither.NONE)
 
 # Brother private SNMP OID 1.3.6.1.4.1.2435.3.3.9.1.6.1.0. The response
 # contains the same 32-byte status structure used by the USB backend.
@@ -57,6 +57,7 @@ class PrinterQueue:
         self.device_specifier = device_specifier
         self.label_size = label_size
         self._print_queue = []
+        self.warnings = []
 
     def add_label_to_queue(self, label, cut: bool = True, high_res: bool = False, chain_print: bool = False, half_cut: bool = False, no_cut: bool = False):
         self._print_queue.append({
@@ -68,17 +69,17 @@ class PrinterQueue:
         })
 
     def _rasterize_entries(self, entries):
-        """Rasterize a list of queue entries into a BrotherQLRaster and
-        return ``(qlr, generated_images)``."""
+        """Rasterize a list of queue entries into a BrotherQLRaster."""
         qlr = BrotherQLRaster(self.model)
-        generated_images = []
-        is_simulation = isinstance(self.device_specifier, str) and self.device_specifier in ['simulation', '?']
         images = []
         page_options = []
         for entry in entries:
             label = entry['label']
             rotate = 0 if label.label_orientation == LabelOrientation.ROTATED else 90
             img = render_label_bitmap(label)
+            warning = label.render_warning
+            if warning and warning not in self.warnings:
+                self.warnings.append(warning)
             images.append(img)
             page_options.append({
                 'cut': entry['cut'],
@@ -87,8 +88,6 @@ class PrinterQueue:
                 'chain_print': entry['chain_print'],
                 'rotate': rotate,
             })
-            if is_simulation:
-                generated_images.append(img)
         qlr.data = convert(
             qlr,
             images,
@@ -96,9 +95,9 @@ class PrinterQueue:
             dither=False,
             page_options=page_options
         )
-        return qlr, generated_images
+        return qlr
 
-    def _send_raster(self, qlr, generated_images, batch_index=0) -> str:
+    def _send_raster(self, qlr, batch_index=0) -> str:
         """Send rasterized data to the printer or simulator.
         Returns an empty string on success, or an error message."""
         try:
@@ -148,8 +147,8 @@ class PrinterQueue:
             batch = entries[start:start + batch_size]
             logger.info('Processing batch %d (%d labels, %d/%d)',
                         batch_index, len(batch), start + len(batch), total)
-            qlr, generated_images = self._rasterize_entries(batch)
-            status = self._send_raster(qlr, generated_images, batch_index)
+            qlr = self._rasterize_entries(batch)
+            status = self._send_raster(qlr, batch_index)
             if status:
                 return status
 

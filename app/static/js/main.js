@@ -79,7 +79,6 @@ function _deleteImagesFromDB(id = null) {
 function setFontSettingsPerLine() {
     var text = $('#label_text').val() || '';
     var lines = text.split(/\r?\n/);
-    if (lines.length === 0) lines = [''];
 
     // Default font settings from the current UI controls
     var currentFont = {
@@ -101,35 +100,23 @@ function setFontSettingsPerLine() {
         lineSelect.append($("<option></option>")
             .attr("value", index).text(lines[index] || '(line ' + (index + 1) + ' is empty)'));
     });
-    if (selectedLine !== null) {
-        // Select the previously active line
-        lineSelect.val(selectedLine);
-    } else {
-        // If no line is selected, we select the first one
-        lineSelect.val(0);
-    }
+    lineSelect.val(selectedLine ?? 0);
 
     // Should we use the same font settings for all lines?
     const isSynced = $('#sync_font_settings').is(':checked');
     if (isSynced) {
-        fontSettingsPerLine = [];
-        for (var i = 0; i < lines.length; i++) {
-            fontSettingsPerLine[i] = Object.assign({}, currentFont);
-            fontSettingsPerLine[i]['text'] = lines[i];
-        }
+        fontSettingsPerLine = lines.map(text => ({ ...currentFont, text }));
         return;
     }
 
     // We may need to initialize new lines with current font settings
-    if (fontSettingsPerLine.length < lines.length) {
-        for (var i = fontSettingsPerLine.length; i < lines.length; i++) {
-            if (i === selectedLine || selectedLine === null) {
-                // Initialize with default
-                fontSettingsPerLine.push(Object.assign({}, currentFont));
-            } else {
-                // Inherit from previous line
-                fontSettingsPerLine.push(Object.assign({}, fontSettingsPerLine[i - 1]));
-            }
+    for (var i = fontSettingsPerLine.length; i < lines.length; i++) {
+        if (i === selectedLine || selectedLine === null) {
+            // Initialize with default
+            fontSettingsPerLine.push(Object.assign({}, currentFont));
+        } else {
+            // Inherit from previous line
+            fontSettingsPerLine.push(Object.assign({}, fontSettingsPerLine[i - 1]));
         }
     }
 
@@ -300,11 +287,13 @@ function saveSpreadsheet(rows, render = true) {
 }
 
 function formData() {
-    data = {
+    const data = {
         text: JSON.stringify(fontSettingsPerLine),
         spreadsheet_mode: $('#spreadsheet_mode').is(':checked') ? 1 : 0,
         spreadsheet_data: $('#spreadsheet_data').val(),
         label_size: $('#label_size').val(),
+        label_length: $('#label_length_auto').is(':checked') ? 0 : parseFloat($('#label_length').val()) || 0,
+        label_length_auto: $('#label_length_auto').is(':checked') ? 1 : 0,
         orientation: $('input[name=orientation]:checked').val(),
         margin_top: parseInt($('#margin_top').val(), 10) || 0,
         margin_bottom: parseInt($('#margin_bottom').val(), 10) || 0,
@@ -312,6 +301,7 @@ function formData() {
         margin_right: parseInt($('#margin_right').val(), 10) || 0,
         print_type: $('input[name=print_type]:checked').val(),
         barcode_type: $('#barcode_type').val(),
+        code_text: $('#code_text').val() || '',
         qrcode_size: parseInt($('#qrcode_size').data('manual-size') ?? $('#qrcode_size').val(), 10) || 0,
         qrcode_correction: $('#qrcode_correction option:selected').val(),
         code_fit: $('#code_fit').is(':checked') ? 1 : 0,
@@ -335,8 +325,6 @@ function formData() {
         sync_font_settings: $('#sync_font_settings').is(':checked') ? 1 : 0
     }
 
-    data['code_text'] = $('#code_text').val() || '';
-
     // Include selected printer if available
     const printerSelect = document.getElementById('printer');
     if (printerSelect && printerSelect.value) {
@@ -350,60 +338,72 @@ function formData() {
     return data;
 }
 
-function get_dpi() {
-    return $('#high_res').is(':checked') ? default_dpi * 2 : default_dpi;
-}
-
 function sizePreview(img) {
-    const availableWidth = img.parentElement.clientWidth - 2;
-    const scale = Math.min(128 / img.naturalHeight, availableWidth / img.naturalWidth);
+    const dpi = Number(img.dataset.dpi);
+    const feed = Number(img.dataset.feedMargin) * dpi / default_dpi;
+    const tapeWidth = Number(img.dataset.tapeWidth);
+    const side = Math.max(0, (tapeWidth * dpi / 25.4 - img.naturalHeight) / 2);
+    const fullWidth = img.naturalWidth + 2 * feed;
+    const fullHeight = img.naturalHeight + 2 * side;
+    const availableWidth = img.parentElement.parentElement.clientWidth - 4;
+    const scale = Math.min(128 / fullHeight, availableWidth / fullWidth);
+    img.parentElement.style.padding = `${side * scale}px ${feed * scale}px`;
     img.style.width = `${img.naturalWidth * scale}px`;
     img.style.height = `${img.naturalHeight * scale}px`;
+    const length = (fullWidth / dpi * 25.4).toFixed(1);
+    const item = $(img).closest('.preview-item');
+    item.find('.label-width').text(length);
+    item.find('.label-height').text(tapeWidth.toFixed(1));
+    return length;
 }
 
 function updatePreview(data) {
-    $('#previewImg').attr('src', 'data:image/png;base64,' + data);
-    var img = $('#previewImg')[0];
-    img.onload = function () {
-        sizePreview(img);
-        $('#labelWidth').html((img.naturalWidth / get_dpi() * 2.54).toFixed(1));
-        $('#labelHeight').html((img.naturalHeight / get_dpi() * 2.54).toFixed(1));
+    const container = document.getElementById('labelPreviews');
+    const template = document.getElementById('labelPreviewTemplate').content.firstElementChild;
+    const dimensions = {
+        dpi: data.dpi,
+        feedMargin: data.feed_margin,
+        tapeWidth: data.tape_width,
     };
+    container.replaceChildren(...data.images.map((image, index) => {
+        const item = template.cloneNode(true);
+        const img = item.querySelector('.preview-img');
+        Object.assign(img.dataset, dimensions);
+        img.onload = () => {
+            const length = sizePreview(img);
+            if (index === 0 && $('#label_length_auto').is(':checked')) $('#label_length').val(length);
+        };
+        img.src = 'data:image/png;base64,' + image;
+        return item;
+    }));
 }
 
 window.addEventListener('resize', function () {
-    const img = $('#previewImg')[0];
-    if (img && img.naturalWidth) {
-        sizePreview(img);
-    }
+    document.querySelectorAll('.preview-img').forEach(img => {
+        if (img.naturalWidth) sizePreview(img);
+    });
 });
 
 var lastPreviewData = null;
 var pendingDropZoneData = null;
 function gen_label(preview = true) {
+    $('#label_length').prop('disabled', $('#label_length_auto').is(':checked'));
     // Check label against installed label in the printer
     updatePrinterStatus();
 
     // Update font settings for each line
     setFontSettingsPerLine();
 
-    // Show or hide image upload box
-    if ($('input[name=print_type]:checked').val() == 'image') {
-        $('#groupLabelImage').show();
-    } else {
-        $('#groupLabelImage').hide();
-    }
-
-    let type = preview ? 'preview' : 'printing';
-
     // Capture the request before asynchronous image processing starts.
     const data = formData();
+    const type = preview ? 'preview' : 'printing';
+    $('#groupLabelImage').toggle(data.print_type === 'image');
 
     // Process image upload
-    if ($('input[name=print_type]:checked').val() == 'image') {
+    if (data.print_type === 'image') {
         setStatus({ type: type, 'status': 'pending' });
         pendingDropZoneData = data;
-        dropZoneMode = preview ? 'preview' : 'printing';
+        dropZoneMode = type;
         imageDropZone.processQueue();
         return;
     }
@@ -425,52 +425,44 @@ function gen_label(preview = true) {
     setStatus({ type: type, 'status': 'pending' });
 
     // Send printing request
-    const url = preview ? (url_for_preview + '?return_format=base64') : url_for_print;
+    const url = preview ? url_for_preview : url_for_print;
     $.ajax({
         type: 'POST',
         url: url,
-        contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
         data: data,
-        success: function (data, _textStatus, xhr) {
-            // Check if response is JSON and has a key "success"
-            const status = typeof data === "object" &&
-                data !== null &&
-                "success" in data &&
-                data.success === false ?
-                'error' : 'success';
-            setStatus({ type: type, 'status': status });
+        success: function (data) {
+            if (preview && dataJson !== lastPreviewData) return;
+            const status = data?.success === false ? 'error' : 'success';
+            setStatus({ type, status, warnings: data?.warnings });
             if (preview) {
-                updateAutoFontSizes(xhr.getResponseHeader('X-Font-Sizes'));
-                const cellSize = xhr.getResponseHeader('X-Code-Cell-Size');
-                if (cellSize && $('#code_fit').is(':checked') && dataJson === lastPreviewData) {
-                    $('#qrcode_size').val(cellSize);
-                }
-                updatePreview(data);
+                updateFormPreview(data);
             }
         },
         error: function (xhr, _status, error) {
+            if (preview && dataJson !== lastPreviewData) return;
             message = xhr.responseJSON ? xhr.responseJSON.message : error;
-            const text = preview ? 'Preview generation failed' : 'Printing failed';
-            setStatus({ type: type, 'status': 'error', 'message': message }, text);
+            setStatus({ type: type, 'status': 'error', 'message': message });
         }
     });
 }
 
-function updateAutoFontSizes(header) {
-    if (!header) return;
-    let sizes;
-    try {
-        sizes = JSON.parse(header);
-    } catch (_error) {
-        return;
+function updateFormPreview(data) {
+    updateAutoFontSizes(data.font_sizes);
+    if (data.code_cell_size && $('#code_fit').is(':checked')) {
+        $('#qrcode_size').val(data.code_cell_size);
     }
+    updatePreview(data);
+}
+
+function updateAutoFontSizes(sizes) {
+    if (!sizes) return;
     sizes.forEach(function (size, index) {
-        if (fontSettingsPerLine[index] && fontSettingsPerLine[index].auto_scale) {
+        if (fontSettingsPerLine[index]?.auto_scale) {
             fontSettingsPerLine[index].size = size;
         }
     });
     const selectedLine = parseInt($('#lineSelect').val(), 10);
-    if (!isNaN(selectedLine) && fontSettingsPerLine[selectedLine] && fontSettingsPerLine[selectedLine].auto_scale) {
+    if (fontSettingsPerLine[selectedLine]?.auto_scale) {
         $('#font_size').val(fontSettingsPerLine[selectedLine].size);
     }
 }
@@ -484,10 +476,11 @@ function preview() {
     gen_label(true);
 }
 
-function setStatus(data, what = null) {
+function setStatus(data) {
     let type = data.type || '';
     let status = data.status || '';
-    let message = data.message || '';
+    let message = data.message || data.warnings?.join('<br />') || '';
+    if (status === 'success' && message) status = 'warning';
     let errors = data?.errors || [];
     let extra_info = message ? ':<br />' + message : '';
     if (errors.length > 0) {
@@ -522,18 +515,14 @@ function setStatus(data, what = null) {
                         </div>`;
                 iconClass = 'float-end fas fa-print text-success';
             }
-        } else if (status === 'error') {
-            // Error for preview or printing
+        } else if (status === 'warning' || status === 'error') {
             let action = type === 'preview' ? "Preview generation failed" : "Printing failed";
+            const text = status === 'warning' ? message : action + extra_info;
             html = `<div id="statusBox" class="alert alert-warning" role="alert">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <span>${action}${extra_info}</span>
+                        <span>${text}</span>
                     </div>`;
             iconClass = 'float-end fas fa-exclamation-triangle text-danger';
-        } else {
-            // Unknown status, clear
-            html = "";
-            iconClass = "";
         }
     } else if (type === 'status') {
         if (status === 'error') {
@@ -543,41 +532,19 @@ function setStatus(data, what = null) {
                         <span>${action}${extra_info}</span>
                     </div>`;
             iconClass = 'float-end fas fa-exclamation-triangle text-danger';
-        } else {
-            html = "";
-            iconClass = "";
         }
-    } else {
-        html = "";
-        iconClass = "";
     }
 
-    let elem = null;
-    if (type === 'status') {
-        elem = $('#printerStatusPanel');
-    } else {
-        elem = $('#statusPanel');
-    }
-    elem.html(html);
-    if (html.length > 0)
-        elem.show();
-    else
-        elem.hide();
+    const elem = $(type === 'status' ? '#printerStatusPanel' : '#statusPanel');
+    elem.html(html).toggle(html.length > 0);
 
     $('#statusIcon').removeClass().addClass(iconClass);
-    $('#printButton').prop('disabled', false);
-    $('#dropdownPrintButton').prop('disabled', false);
+    $('#printButton, #dropdownPrintButton').prop('disabled', false);
 }
 
 let imageDropZone = null;
 new Dropzone("#image-dropzone", {
-    url: function () {
-        if (dropZoneMode == 'preview') {
-            return url_for_preview + "?return_format=base64";
-        } else {
-            return url_for_print;
-        }
-    },
+    url: () => dropZoneMode === 'preview' ? url_for_preview : url_for_print,
     paramName: "image", // The name that will be used to transfer the file
     acceptedFiles: 'image/*,application/pdf',
     maxFiles: 1,
@@ -596,25 +563,17 @@ new Dropzone("#image-dropzone", {
 
     sending: function (file, xhr, data) {
         // append all parameters to the request
-        let fd = pendingDropZoneData || formData();
-
-        $.each(fd, function (key, value) {
+        $.each(pendingDropZoneData, function (key, value) {
             data.append(key, value);
         });
     },
 
     success: function (file, response) {
         // If preview or print was successfull update the previewpane or print status
-        // Check if response is JSON and has a key "success"
-        const status = typeof response === "object" &&
-            response !== null &&
-            "success" in response &&
-            response.success === false ?
-            'error' : 'success';
-        setStatus({ type: dropZoneMode, status: status });
+        const status = response?.success === false ? 'error' : 'success';
+        setStatus({ type: dropZoneMode, status, warnings: response?.warnings });
         if (dropZoneMode == 'preview') {
-            updateAutoFontSizes(file.xhr && file.xhr.getResponseHeader('X-Font-Sizes'));
-            updatePreview(response);
+            updateFormPreview(response);
         }
         file.status = Dropzone.QUEUED;
     },
@@ -628,8 +587,7 @@ new Dropzone("#image-dropzone", {
     removedfile: function (file) {
         file.previewElement.remove();
         preview();
-        // Insert a dummy image
-        updatePreview('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=');
+        document.getElementById('labelPreviews').replaceChildren();
     }
 });
 
@@ -864,8 +822,7 @@ function updateUndoButton() {
     try {
         history = JSON.parse(localStorage.getItem(LS_HISTORY_KEY)) || [];
     } catch { history = []; }
-    const steps = Math.max(0, history.length - 1);
-    $('#undoSettingsBtn').prop('disabled', steps === 0);
+    $('#undoSettingsBtn').prop('disabled', history.length < 2);
 }
 
 function restoreAllSettingsFromLocalStorage() {
@@ -877,6 +834,7 @@ function restoreAllSettingsFromLocalStorage() {
     lastPreviewData = null;
     current_restoring = true;
     data.spreadsheet_mode ??= false;
+    data.label_length_auto ??= !Number(data.label_length);
     data.spreadsheet_data ??= $('#spreadsheet_data').attr('data-default');
     $('#print_count').prop('disabled', false);
     $('#qrcode_size').removeData('manual-size');
@@ -886,13 +844,8 @@ function restoreAllSettingsFromLocalStorage() {
         if (this.type === 'checkbox') {
             $(this).prop('checked', !!data[key]);
         } else if (this.type === 'radio') {
-            if ($(this).val() == data[key]) {
-                this.checked = true;
-                $(`label[for="${this.id}"]`).addClass('active');
-            } else {
-                this.checked = false;
-                $(`label[for="${this.id}"]`).removeClass('active');
-            }
+            this.checked = $(this).val() == data[key];
+            $(`label[for="${this.id}"]`).toggleClass('active', this.checked);
         } else {
             this.value = data[key];
         }
@@ -1001,20 +954,16 @@ function renderRepoList(files) {
     body.html(table);
 
     // Attach handlers
-    $('.repo-preview').off('click').on('click', function () {
-        const name = $(this).data('name');
-        repoPreview(name);
-    });
-    $('.repo-load').off('click').on('click', function () {
+    $('.repo-load').on('click', function () {
         const name = $(this).data('name');
         repoLoad(name);
     });
-    $('.repo-delete').off('click').on('click', function () {
+    $('.repo-delete').on('click', function () {
         const name = $(this).data('name');
         if (!confirm('Delete ' + name + '?')) return;
         repoDelete(name);
     });
-    $('.repo-print').off('click').on('click', function () {
+    $('.repo-print').on('click', function () {
         const name = $(this).data('name');
         repoPrint(name);
     });
@@ -1162,21 +1111,6 @@ function repoDelete(name) {
         });
 }
 
-function repoPreview(name) {
-    // request base64 preview
-    fetch(url_for_repo_preview + '?name=' + encodeURIComponent(name) + '&return_format=base64')
-        .then(r => {
-            if (!r.ok) throw new Error('Preview failed');
-            return r.text();
-        })
-        .then(b64 => {
-            updatePreview(b64);
-        }).catch(e => {
-            console.error(e);
-            alert('Preview failed');
-        });
-}
-
 function repoPrint(name) {
     // Ask server to print a repository template by name
     const printerSelect = document.getElementById('printer');
@@ -1190,7 +1124,7 @@ function repoPrint(name) {
         .then(r => r.json())
         .then(resp => {
             if (resp && resp.success) {
-                setStatus({ type: 'printing', status: 'success' });
+                setStatus({ type: 'printing', status: 'success', warnings: resp.warnings });
                 console.log('Print job queued successfully');
             } else {
                 const msg = resp && resp.message ? resp.message : 'Print failed';
@@ -1204,18 +1138,13 @@ function repoPrint(name) {
 }
 
 function repoFetchThumbnail(name, imgEl) {
-    // include selected printer if present so preview matches selected device
-    const printerSelect = document.getElementById('printer');
-    const printer = printerSelect && printerSelect.value ? printerSelect.value : null;
-    let url = url_for_repo_preview + '?name=' + encodeURIComponent(name) + '&return_format=base64';
-    if (printer) url += '&printer=' + encodeURIComponent(printer);
-    fetch(url)
+    fetch(url_for_repo_preview + '?name=' + encodeURIComponent(name) + '&thumbnail=1')
         .then(r => {
             if (!r.ok) throw new Error('Preview fetch failed');
-            return r.text();
+            return r.json();
         })
-        .then(b64 => {
-            imgEl.src = 'data:image/png;base64,' + b64;
+        .then(data => {
+            imgEl.src = 'data:image/png;base64,' + data.images[0];
         })
         .catch(e => {
             console.debug('Thumbnail fetch failed for', name, e);

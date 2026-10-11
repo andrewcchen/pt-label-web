@@ -41,8 +41,7 @@ def pdffile_to_image(file: FileStorage, dpi: int) -> Image.Image:
 def image_to_png_bytes(im: Image.Image) -> bytes:
     image_buffer = BytesIO()
     im.save(image_buffer, format="PNG")
-    image_buffer.seek(0)
-    return image_buffer.read()
+    return image_buffer.getvalue()
 
 
 def fill_first_line_fields(text, data: dict):
@@ -56,7 +55,6 @@ def fill_first_line_fields(text, data: dict):
         data['font_inverted'] = True if text[0].get('inverted', 0) else False
         data['font'] = text[0].get('font', FONTS.get_default_font()[0])
         data['font_align'] = text[0].get('align', 'left')
-        data['font_inverted'] = True if text[0].get('inverted', 0) else False
         data['line_spacing'] = str(text[0].get('line_spacing', current_app.config['LABEL_DEFAULT_LINE_SPACING']))
     else:
         data['font_size'] = str(current_app.config['LABEL_DEFAULT_FONT_SIZE'])

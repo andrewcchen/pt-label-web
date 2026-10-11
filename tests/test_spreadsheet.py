@@ -42,6 +42,8 @@ def test_prints_each_row_and_ignores_print_count(monkeypatch):
     labels = []
 
     class Queue:
+        warnings = []
+
         def add_label_to_queue(self, label, cut, *args, **kwargs):
             label.process_templates()
             labels.append((label.text[0]['text'], label._code_text, cut))
@@ -52,6 +54,7 @@ def test_prints_each_row_and_ignores_print_count(monkeypatch):
     monkeypatch.setattr(routes, 'create_printer_from_request', lambda request: Queue())
     monkeypatch.setattr(routes, 'FONTS', SimpleNamespace(get_path=lambda font: 'unused.ttf'))
     response = app.test_client().post('/api/print', data={
+        'label_size': 'tze24',
         'spreadsheet_mode': 1,
         'spreadsheet_data': json.dumps([['first', 'A'], ['second', 'B']]),
         'text': json.dumps([{'text': '{{1}}-{{counter}}', 'size': 24}]),

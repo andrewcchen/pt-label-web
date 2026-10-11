@@ -9,6 +9,7 @@ const defaultValue = template.match(/id="spreadsheet_data"[^>]*data-default='([^
 const mode = { id: 'spreadsheet_mode', type: 'checkbox', checked: true };
 const sheet = { id: 'spreadsheet_data', type: 'textarea', value: '[["A"],["B"]]' };
 const count = { id: 'print_count', type: 'number', value: '2', disabled: true, data: {} };
+const autoLength = { id: 'label_length_auto', type: 'checkbox', checked: true };
 let saved;
 const context = {
     LS_KEY: 'settings', window: {},
@@ -17,7 +18,7 @@ const context = {
     $(selector) {
         const el = typeof selector === 'object' ? selector : ({ '#spreadsheet_mode': mode, '#spreadsheet_data': sheet, '#print_count': count }[selector] || { data: {} });
         return {
-            each(callback) { [mode, sheet, count].forEach(input => callback.call(input)); },
+            each(callback) { [mode, sheet, count, autoLength].forEach(input => callback.call(input)); },
             attr() { return defaultValue; },
             removeData(key) { delete el.data[key]; return this; },
             is() { return el.checked; },
@@ -39,6 +40,15 @@ assert.equal(mode.checked, false);
 assert.equal(sheet.value, defaultValue);
 assert.equal(count.disabled, false);
 assert.equal(count.value, '1');
+assert.equal(autoLength.checked, true);
+
+saved = { label_length: 50 };
+context.restoreAllSettingsFromLocalStorage();
+assert.equal(autoLength.checked, false);
+
+saved = { label_length: 50, label_length_auto: true };
+context.restoreAllSettingsFromLocalStorage();
+assert.equal(autoLength.checked, true);
 
 // Mode and rows restore together, and the row count overrides a saved count.
 saved = { spreadsheet_mode: true, spreadsheet_data: '[["first"],["second"]]', print_count: '99' };

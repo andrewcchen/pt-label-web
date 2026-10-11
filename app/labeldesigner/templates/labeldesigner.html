@@ -4,20 +4,20 @@
 <div class="row mb-3">
     <div class="col-12">
         <fieldset class="label-preview-panel">
-            <label for="previewImg" style="margin-bottom: 0">Label Preview:</label>
-            <div class="label-preview-frame">
-                <img id="previewImg" />
-            </div>
-            <p class="mb-0">Printed size: <span id="labelWidth">?</span> cm x <span id="labelHeight">?</span> cm</p>
+            <strong>Label Preview:</strong>
+            <div id="labelPreviews"></div>
+            <template id="labelPreviewTemplate">
+                <div class="preview-item">
+                    <div class="label-preview-frame">
+                        <div class="preview-label"><img class="preview-img" /></div>
+                    </div>
+                    <p class="mb-0">Printed size: <span class="label-width">?</span> mm x <span class="label-height">?</span> mm</p>
+                </div>
+            </template>
         </fieldset>
     </div>
 </div>
 <div class="row">
-    <!-- Settings buttons only (dark mode toggle moved to navbar) -->
-    <div style="position: absolute; top: 10px; right: 20px; z-index: 1000; display: flex; gap: 10px; align-items: center;">
-        <div class="btn-group btn-group-sm" role="group" aria-label="Settings">
-        </div>
-    </div>
     <div class="col-md-4">
     <fieldset>
             <div class="accordion" id="accordion" style="max-height: 90vh; overflow-y: auto;">
@@ -42,6 +42,16 @@
                             </select>
                             <div class="form-text text-muted">Detected label: <span id="label-width">???</span></div>
                             <div id="labelMismatch" class="form-text text-danger" style="display: none;">Label size mismatch detected!</div>
+
+                            <label for="label_length" style="margin-top: 10px; margin-bottom: 0">Label Length:</label>
+                            <div class="input-group">
+                                <input id="label_length" class="form-control" type="number" min="0" step="0.1" data-default="0" onchange="preview()" disabled>
+                                <span class="input-group-text">mm</span>
+                            </div>
+                            <div class="form-check mt-2">
+                                <input id="label_length_auto" class="form-check-input" type="checkbox" data-default="1" onchange="preview()" checked>
+                                <label class="form-check-label" for="label_length_auto">Auto label length</label>
+                            </div>
 
                             <label for="orientation" class="form-label input-group" style="margin-top: 10px; margin-bottom: 0">Label Orientation:</label>
                             <div class="btn-group mb-2" role="radiogroup" aria-label="Label Orientation">
@@ -393,7 +403,7 @@
                     <div class="card-body pt-2 pb-2">
                         <strong>Templates</strong> allow you to insert dynamic content into your label text and code content. Supported templates:<br>
                         <ul style="margin-bottom: 0.5em;">
-                            <li><code>{{'{{1}}'}}</code>, <code>{{'{{2}}'}}</code>, etc. — Selects columns in spreadsheet mode. One label prints per row; preview shows the first row. Hint: paste cells from a spreadsheet into the editor.</li>
+                            <li><code>{{'{{1}}'}}</code>, <code>{{'{{2}}'}}</code>, etc. — Selects columns in spreadsheet mode. One label prints per row. Hint: paste cells from a spreadsheet into the editor.</li>
                             <li><code>{{'{{datetime:<format>}}'}}</code> — Inserts the current date and time when printing.
                                 You can customize the format using <a href="https://strftime.org/" target="_blank"
                                     rel="noopener">strftime</a> options, e.g., <code>%H:%M:%S %d.%m.%Y</code>.</li>

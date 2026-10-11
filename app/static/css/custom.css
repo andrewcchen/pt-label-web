@@ -30,7 +30,13 @@ textarea#label_text {
     width: 100%;
 }
 
-#previewImg {
+.preview-label {
+    border: 1px solid black;
+    background: white;
+    flex-shrink: 0;
+}
+
+.preview-img {
     border: 1px solid #dc3545;
     box-sizing: border-box;
     display: block;
@@ -39,9 +45,6 @@ textarea#label_text {
     width: auto;
 }
 
-.roundPreviewImage {
-    border-radius: 100%;
-}
 label {
     font-weight: 700;
 }

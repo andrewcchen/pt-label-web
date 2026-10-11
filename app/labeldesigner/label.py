@@ -60,6 +60,7 @@ class SimpleLabel:
         code_text: str = '',
         code_fit: bool = False,
         spreadsheet_row: list[str] | None = None,
+        fixed_length: int = 0,
     ):
         """Initialize a SimpleLabel object."""
         # Input validation
@@ -76,6 +77,8 @@ class SimpleLabel:
                 raise ValueError("Image rotation must be between 0 and 360 inclusive.")
         self._width = width
         self._height = height
+        self._fixed_length = fixed_length
+        self.render_warning = None
         self.label_content = label_content
         self.label_orientation = label_orientation
         self.barcode_type = barcode_type
@@ -219,9 +222,10 @@ class SimpleLabel:
             line['text'] = text_val
         self._code_text = code_line['text']
 
-    def generate(self, rotate: bool = False):
+    def generate(self):
         # Process possible templates in the text
         self.process_templates()
+        rotated = self._label_orientation == LabelOrientation.ROTATED
 
         # Generate codes or load images if requested
         is_code = self._label_content in (LabelContent.QRCODE_ONLY, LabelContent.TEXT_QRCODE)
@@ -232,7 +236,7 @@ class SimpleLabel:
                 img = self._generate_datamatrix()
             else:
                 img = self._generate_barcode()
-                if self._label_orientation == LabelOrientation.ROTATED:
+                if rotated:
                     img = img.transpose(Image.Transpose.ROTATE_90)
         elif self._label_content in (LabelContent.IMAGE_BW, LabelContent.IMAGE_GRAYSCALE, LabelContent.IMAGE_COLORED):
             img = self._image
@@ -242,15 +246,15 @@ class SimpleLabel:
         # Initialize dimensions
         width, height = self._width, self._height
         margin_left, margin_right, margin_top, margin_bottom = self._label_margin
+        available = max(width - margin_left - margin_right if rotated else height - margin_top - margin_bottom, 1)
         is_matrix_code = self.barcode_type in ('QR', 'DATAMATRIX')
         code_cell_size = self._qr_size if is_matrix_code else 4
         self.rendered_code_cell_size = None
 
         # Fit codes independently of image settings.
-        if img is not None and is_code:
+        if is_code:
             if self._code_fit:
-                available = max(width - margin_left - margin_right, 1) if self._label_orientation == LabelOrientation.ROTATED else max(height - margin_top - margin_bottom, 1)
-                fixed_size = img.width if self._label_orientation == LabelOrientation.ROTATED else img.height
+                fixed_size = img.width if rotated else img.height
                 if is_matrix_code:
                     cells = fixed_size // self._qr_size
                     code_cell_size = available // cells
@@ -258,9 +262,8 @@ class SimpleLabel:
                         raise ValueError('Code is too dense to fit the label at one pixel per cell.')
                     new_size = (cells * code_cell_size, cells * code_cell_size)
                 else:
-                    new_size = (available, img.height) if self._label_orientation == LabelOrientation.ROTATED else (img.width, available)
+                    new_size = (available, img.height) if rotated else (img.width, available)
                 img = img.resize(new_size, Image.Resampling.NEAREST)
-            img_width, img_height = img.size
             if is_matrix_code:
                 self.rendered_code_cell_size = code_cell_size
         elif img is not None:
@@ -275,63 +278,35 @@ class SimpleLabel:
             if self._image_crop:
                 img = self._crop_image_to_content(img)
 
+            img_width, img_height = img.size
             # Resize image to fit if image_fit is True
             if self._image_fit:
-                # Calculate the maximum allowed dimensions
-                max_width = max(width - margin_left - margin_right, 1)
-                max_height = max(height - margin_top - margin_bottom, 1)
-
-                # Get image dimensions
-                img_width, img_height = img.size
-
-                # Print the original image size
-                logger.debug(f"Maximal allowed dimensions: {max_width}x{max_height} mm")
+                logger.debug(f"Available printable size: {available} px")
                 logger.debug(f"Original image size: {img_width}x{img_height} px")
-
-                # Resize the image to fit within the maximum dimensions
-                scale = 1.0
-                if self._label_orientation == LabelOrientation.ROTATED:
-                    scale = max_width / img_width
-                else:
-                    scale = max_height / img_height
+                scale = available / (img_width if rotated else img_height)
                 logger.debug(f"Scaling image by factor: {scale}")
-                new_size = (int(img_width * scale), int(img_height * scale))
-                logger.debug(f"Resized image size: {new_size} px")
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
-                # Update image dimensions
-                img_width, img_height = img.size
             else:
                 # Use image_scaling_factor if provided
-                img_width, img_height = img.size
                 scale = self._image_scaling_factor / 100.0
                 logger.debug(f"Manual image scaling factor: {scale}")
-                new_size = (int(img_width * scale), int(img_height * scale))
-                logger.debug(f"Resized image size: {new_size} px")
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
-                img_width, img_height = img.size
-        else:
-            img_width, img_height = (0, 0)
+            new_size = (max(1, int(img_width * scale)), max(1, int(img_height * scale)))
+            logger.debug(f"Resized image size: {new_size} px")
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
 
-        if self.want_text(img):
-            if self._label_orientation == LabelOrientation.STANDARD:
-                self._auto_scale_text(max(height - margin_top - margin_bottom, 1), height=True)
-            else:
-                self._auto_scale_text(max(width - margin_left - margin_right, 1), height=False)
+        img_width, img_height = img.size if img is not None else (0, 0)
+
+        want_text = self.want_text(img)
+        bboxes = []
+        if want_text:
+            self._auto_scale_text(available, height=not rotated)
             bboxes = self._draw_text(None, [])
-            textsize = self._compute_bbox(bboxes)
-        else:
-            bboxes = []
-            textsize = (0, 0, 0, 0)
+        textsize = self._compute_bbox(bboxes)
 
-        code_text_gap = code_cell_size if is_code and self.want_text(img) else 0
+        code_text_gap = code_cell_size if is_code and want_text else 0
 
-        # Adjust the tape length to fit the content.
-        if self._label_orientation == LabelOrientation.ROTATED:
+        # Adjust the tape length to fit the content and position text and images.
+        if rotated:
             height = img_height + code_text_gap + textsize[3] - textsize[1] + margin_top + margin_bottom
-        elif self._label_orientation == LabelOrientation.STANDARD:
-            width = img_width + code_text_gap + textsize[2] + margin_left + margin_right
-
-        if self._label_orientation == LabelOrientation.ROTATED:
             vertical_offset_text = margin_top
             if self.need_image_text_distance and not is_code:
                 # Slightly increase the margin to get some distance from the QR code.
@@ -342,7 +317,8 @@ class SimpleLabel:
             horizontal_offset_image = (width - img_width)//2
             vertical_offset_image = margin_top
 
-        elif self._label_orientation == LabelOrientation.STANDARD:
+        else:
+            width = img_width + code_text_gap + textsize[2] + margin_left + margin_right
             vertical_offset_text = (height - textsize[3])//2
             vertical_offset_text += (margin_top - margin_bottom)//2
             horizontal_offset_text = margin_left
@@ -354,29 +330,36 @@ class SimpleLabel:
             horizontal_offset_image = margin_left
             vertical_offset_image = (height - img_height)//2
 
-        text_offset = horizontal_offset_text, vertical_offset_text
-        image_offset = horizontal_offset_image, vertical_offset_image
-
         # Ensure height and width are at least 1 to avoid generating valishing
         # preview images for empty inputs. PIL cannot store images with 0
         # width/height dimensions
         width = max(int(width), 1)
         height = max(int(height), 1)
 
-        logger.debug(f"Image resolution: {int(width)} x {int(height)} px")
-        imgResult = Image.new('RGB', (int(width), int(height)), 'white')
+        text_offset = horizontal_offset_text, vertical_offset_text
+        image_offset = horizontal_offset_image, vertical_offset_image
+
+        logger.debug(f"Image resolution: {width} x {height} px")
+        imgResult = Image.new('RGB', (width, height), 'white')
 
         if img is not None:
             imgResult.paste(img, image_offset)
 
-        if self.want_text(img):
+        if want_text:
             self._draw_text(imgResult, bboxes, text_offset)
 
-        # Check if the image needs rotation (only applied when generating
-        # preview images)
-        preview_needs_rotation = self._label_orientation == LabelOrientation.ROTATED
-        if rotate and preview_needs_rotation:
-            imgResult = imgResult.rotate(-90, expand=True)
+        self.render_warning = None
+        if self._fixed_length:
+            content_length = height if rotated else width
+            size = (width, self._fixed_length) if rotated else (self._fixed_length, height)
+            if content_length > self._fixed_length:
+                self.render_warning = 'Content was cropped to fit the fixed label length.'
+                imgResult = imgResult.crop((0, 0, *size))
+            elif content_length < self._fixed_length:
+                offset = (self._fixed_length - content_length) // 2
+                padded = Image.new('RGB', size, 'white')
+                padded.paste(imgResult, (0, offset) if rotated else (offset, 0))
+                imgResult = padded
 
         # Draw border if thickness > 0
         if self._border_thickness > 0:
@@ -464,11 +447,7 @@ class SimpleLabel:
             box_size=self._qr_size,
             border=0,
         )
-        if len(self._code_text) > 0:
-            text = self._code_text
-        else:
-            # Combine texts from all lines for QR code
-            text = "\n".join(line.get('text', '') for line in self.text)
+        text = self._code_text or "\n".join(line.get('text', '') for line in self.text)
         qr.add_data(text.encode("utf-8-sig"))
         qr.make(fit=True)
         qr_img = qr.make_image(fill_color='black', back_color="white")
@@ -483,6 +462,9 @@ class SimpleLabel:
             img = Image.new('L', (20, 20), 'white')
         draw = ImageDraw.Draw(img)
         y = 0
+        if do_draw:
+            min_bbox_x = min((bbox[0][0] for bbox in bboxes), default=0)
+            max_bbox_x = max((bbox[0][2] for bbox in bboxes), default=0)
 
         # Iterate over lines of text
         for i, line in enumerate(self.text):
@@ -534,16 +516,12 @@ class SimpleLabel:
                 y = bboxes[i][1] + text_offset[1]
                 # Left aligned text
                 if align == "left":
-                    min_bbox_x = min(bbox[0][0] for bbox in bboxes) if len(bboxes) > 0 else 0
                     x = min_bbox_x + text_offset[0]
                 # Center aligned text
                 elif align == "center":
-                    min_bbox_x = min(bbox[0][0] for bbox in bboxes) if len(bboxes) > 0 else 0
-                    max_bbox_x = max(bbox[0][2] for bbox in bboxes) if len(bboxes) > 0 else 0
                     x = (max_bbox_x - min_bbox_x) // 2 + min_bbox_x + text_offset[0]
                 # Right aligned text
                 elif align == "right":
-                    max_bbox_x = max(bbox[0][2] for bbox in bboxes) if len(bboxes) > 0 else 0
                     x = max_bbox_x + text_offset[0]
 
                 if INVERT_LINE:

@@ -2,6 +2,7 @@ import os
 import hmac
 import base64
 import logging
+import math
 import barcode
 from io import BytesIO
 from . import bp
@@ -11,7 +12,7 @@ from werkzeug.datastructures import FileStorage
 from .printer import PrinterQueue, get_ptr_status, render_label_bitmap
 from brother_pt.labels import ALL_LABELS
 from .label import SimpleLabel, LabelContent, LabelOrientation
-from flask import Request, current_app, json, jsonify, render_template, request, make_response
+from flask import current_app, json, jsonify, render_template, request, make_response
 from werkzeug.utils import secure_filename
 from app.utils import (
     convert_image_to_bw, convert_image_to_grayscale, fill_first_line_fields,
@@ -27,6 +28,40 @@ def _generate_preview(label: SimpleLabel) -> Image.Image:
     if label.label_orientation == LabelOrientation.ROTATED:
         im = im.rotate(-90, expand=True)
     return im
+
+
+def _get_label_spec(label_size):
+    if not label_size:
+        raise ValueError('label_size is required')
+    spec = next((label for label in ALL_LABELS if label.identifier == label_size), None)
+    if spec is None:
+        raise LookupError("Unknown label_size")
+    return spec
+
+
+def _preview_json(data, files=None, *, thumbnail=False):
+    rows = spreadsheet_rows(data)
+    if thumbnail and rows is not None:
+        rows = rows[:1]
+    options = _label_options_from_request(data, files)
+    images, warnings = [], []
+    for counter, row in enumerate(rows if rows is not None else [None]):
+        label = SimpleLabel(**options, counter=counter, spreadsheet_row=row)
+        im = _generate_preview(label)
+        images.append(base64.b64encode(image_to_png_bytes(im)).decode('ascii'))
+        if counter == 0:
+            first_label = label
+        if label.render_warning:
+            warnings.append(f'Row {counter + 1}: {label.render_warning}' if rows is not None else label.render_warning)
+    spec = _get_label_spec(data['label_size'])
+    return jsonify(
+        images=images, warnings=warnings,
+        font_sizes=[line.get('size') for line in first_label.text],
+        code_cell_size=first_label.rendered_code_cell_size,
+        dpi=HIGH_RES_DPI if int(data.get('high_res', 0)) else DEFAULT_DPI,
+        tape_width=float(spec.identifier.removeprefix('tze').split('-')[-1]),
+        feed_margin=spec.feed_margin,
+    )
 
 
 @bp.errorhandler(ValueError)
@@ -109,11 +144,9 @@ def repo_list():
 def repo_save():
     # Expect JSON payload
     data = request.get_json(force=True, silent=True)
-    name = None
-    if data is not None:
-        name = data.get('name') or request.values.get('name') or None
     if data is None:
         return make_response(jsonify({'success': False, 'message': 'No JSON payload provided'}), 400)
+    name = data.get('name') or request.values.get('name')
     if not name:
         return make_response(jsonify({'success': False, 'message': 'No name provided'}), 400)
     filename = secure_filename(name)
@@ -144,21 +177,15 @@ def repo_save():
                 base = os.path.splitext(filename)[0]
                 image_name = secure_filename(data.get('image_name') or (base + '_image' + ext))
                 image_path = os.path.join(repo, image_name)
-                import base64 as _b64
                 with open(image_path, 'wb') as imgfh:
-                    imgfh.write(_b64.b64decode(img_b64))
+                    imgfh.write(base64.b64decode(img_b64))
                 data['image'] = image_name
         except Exception:
             current_app.logger.exception('Failed to store base64 image from JSON')
 
-        # Remove raw image data from JSON before saving
-        if 'image_data' in data:
-            del data['image_data']
-
-        # Remove redundant information about zeroth line font settings
-        for key in ['font_size', 'font_auto_scale', 'font_inverted', 'font', 'font_align', 'font_color', 'line_spacing', 'fontSettingsPerLine']:
-            if key in data:
-                del data[key]
+        # Remove raw image data and redundant zeroth line font settings
+        for key in ['image_data', 'font_size', 'font_auto_scale', 'font_inverted', 'font', 'font_align', 'font_color', 'line_spacing', 'fontSettingsPerLine']:
+            data.pop(key, None)
 
         # Finally, save the JSON file
         with open(path, 'w', encoding='utf-8') as fh:
@@ -191,10 +218,8 @@ def repo_load():
         try:
             image_ref = data.get('image')
             if isinstance(image_ref, str) and len(image_ref) > 0:
-                repo = _get_repo_dir()
                 image_path = os.path.join(repo, secure_filename(image_ref))
                 if os.path.exists(image_path):
-                    import base64 as _b64
                     with open(image_path, 'rb') as imgfh:
                         b = imgfh.read()
                     # Guess mime from extension
@@ -209,7 +234,7 @@ def repo_load():
                     }.get(ext, 'application/octet-stream')
                     data['image_name'] = image_ref
                     data['image_mime'] = mime
-                    data['image_data'] = _b64.b64encode(b).decode('ascii')
+                    data['image_data'] = base64.b64encode(b).decode('ascii')
         except Exception:
             current_app.logger.exception('Failed to include repository image in load response')
         return data
@@ -252,8 +277,6 @@ def _load_repo_json(name: str):
     filename = secure_filename(name)
     repo = _get_repo_dir()
     path = os.path.join(repo, filename)
-    if not os.path.exists(path):
-        raise FileNotFoundError(name)
     with open(path, 'r', encoding='utf-8') as fh:
         data = json.load(fh)
         data['text'] = json.dumps(data.get('text', []))
@@ -273,28 +296,11 @@ def repo_preview():
         current_app.logger.exception(e)
         return make_response(jsonify({'success': False, 'message': 'Failed to preview file'}), 500)
 
-    # allow override printer via query param
-    if request.values.get('printer'):
-        data['printer'] = request.values.get('printer')
-
     try:
-        label = create_label_from_request(data)
-        im = _generate_preview(label)
+        return _preview_json(data, thumbnail=request.values.get('thumbnail') == '1')
     except Exception as e:
         current_app.logger.exception(e)
         return make_response(jsonify({'message': str(e)}), 400)
-
-    return_format = request.values.get('return_format', 'png')
-    response_data = image_to_png_bytes(im)
-    if return_format == 'base64':
-        import base64
-        response_data = base64.b64encode(response_data)
-        content_type = 'text/plain'
-    else:
-        content_type = 'image/png'
-    response = make_response(response_data)
-    response.headers.set('Content-type', content_type)
-    return response
 
 
 @bp.route('/api/repository/print', methods=['POST'])
@@ -313,44 +319,30 @@ def repo_print():
         current_app.logger.exception(e)
         return make_response(jsonify({'success': False, 'message': 'Failed to load file'}), 500)
 
-    # Allow overriding printer or other request-like parameters via form/query
-    if request.values.get('printer'):
-        data['printer'] = request.values.get('printer')
-
     # Prepare printer queue using requested or default device/model and label_size from data
     try:
-        device = request.values.get('printer') or current_app.config['PRINTER_PRINTER']
-        model = request.values.get('model') or current_app.config['PRINTER_MODEL']
-        label_size = data.get('label_size') or current_app.config['LABEL_DEFAULT_SIZE']
-        printer = PrinterQueue(model=model, device_specifier=device, label_size=label_size)
+        printer = create_printer_from_request({
+            'label_size': data.get('label_size'),
+            'printer': request.values.get('printer'),
+            'model': request.values.get('model'),
+        })
 
         # Determine printing options
-        print_count = label_print_count({**data, 'print_count': request.values.get('print_count') or data.get('print_count') or 1})
+        rows = spreadsheet_rows(data)
+        print_count = label_print_count(request.values.get('print_count') or data.get('print_count') or 1, rows)
         cut_once = int(request.values.get('cut_once') or data.get('cut_once') or 0) == 1
         half_cut = int(request.values.get('half_cut', data.get('half_cut', 0))) == 1
         no_cut = int(request.values.get('no_cut', data.get('no_cut', 0))) == 1
         chain_print = int(request.values.get('chain_print') or data.get('chain_print') or 0) == 1
         high_res = int(request.values.get('high_res') or data.get('high_res') or 0) != 0
-    except Exception as e:
-        current_app.logger.exception(e)
-        return make_response(jsonify({'success': False, 'message': str(e)}), 400)
-
-    status = ""
-    try:
-        for i in range(print_count):
-            label = create_label_from_request(data, {}, i)
-            cut = not cut_once or i == print_count - 1
-            printer.add_label_to_queue(label, cut, high_res, chain_print, half_cut=half_cut, no_cut=no_cut)
+        options = _label_options_from_request(data)
+        _queue_labels(printer, options, rows, print_count, cut_once, high_res, chain_print, half_cut, no_cut)
         status = printer.process_queue()
     except Exception as e:
         current_app.logger.exception(e)
-        return make_response(jsonify({'success': False, 'message': str(e)}), 400)
+        return {'success': False, 'message': str(e)}, 400
 
-    result = {'success': len(status) == 0}
-    if len(status) > 0:
-        result['message'] = status
-        return make_response(jsonify(result), 400)
-    return result
+    return _print_result(printer, status)
 
 
 @bp.route('/api/barcodes', methods=['GET'])
@@ -367,29 +359,11 @@ def preview_from_image():
         if isinstance(level, int):
             current_app.logger.setLevel(level)
     try:
-        values = request.values.to_dict(flat=True)
-        files = request.files.to_dict(flat=True)
-        label = create_label_from_request(values, files)
-        im = _generate_preview(label)
+        return _preview_json(request.values, request.files)
     except Exception as e:
         current_app.logger.exception(e)
         error = 413 if "too long" in str(e) else 400
         return make_response(jsonify({'message': str(e)}), error)
-
-    return_format = request.values.get('return_format', 'png')
-    response_data = image_to_png_bytes(im)
-    if return_format == 'base64':
-        import base64
-        response_data = base64.b64encode(response_data)
-        content_type = 'text/plain'
-    else:
-        content_type = 'image/png'
-    response = make_response(response_data)
-    response.headers.set('Content-type', content_type)
-    response.headers.set('X-Font-Sizes', json.dumps([line.get('size') for line in label.text]))
-    if label.rendered_code_cell_size is not None:
-        response.headers.set('X-Code-Cell-Size', str(label.rendered_code_cell_size))
-    return response
 
 
 @bp.route('/api/printer_status', methods=['GET'])
@@ -403,52 +377,44 @@ def print_label():
     API to print a label
     returns: JSON
     """
-    return_dict = {'success': False}
     try:
         log_level = request.values.get('log_level')
         if log_level:
             level = getattr(logging, log_level.upper(), None)
             if isinstance(level, int):
                 current_app.logger.setLevel(level)
-        printer = create_printer_from_request(request)
-        print_count = label_print_count(request.values)
+        values = request.values
+        printer = create_printer_from_request(values)
+        rows = spreadsheet_rows(values)
+        print_count = label_print_count(values.get('print_count', 1), rows)
         cut_once = int(request.values.get('cut_once', 0)) == 1
         half_cut = int(request.values.get('half_cut', 0)) == 1
         no_cut = int(request.values.get('no_cut', 0)) == 1
         chain_print = int(request.values.get('chain_print', 0)) == 1
         high_res = int(request.values.get('high_res', 0)) != 0
-    except Exception as e:
-        return_dict['message'] = str(e)
-        current_app.logger.exception(e)
-        return make_response(jsonify(return_dict), 400)
-
-    status = ""
-    try:
-        for i in range(print_count):
-            values = request.values.to_dict(flat=True)
-            files = request.files.to_dict(flat=True)
-            label = create_label_from_request(values, files, i)
-            cut = not cut_once or i == print_count - 1
-            printer.add_label_to_queue(label, cut, high_res, chain_print, half_cut=half_cut, no_cut=no_cut)
+        options = _label_options_from_request(values, request.files)
+        _queue_labels(printer, options, rows, print_count, cut_once, high_res, chain_print, half_cut, no_cut)
         status = printer.process_queue()
     except Exception as e:
-        return_dict['message'] = str(e)
         current_app.logger.exception(e)
-        return make_response(jsonify(return_dict), 400)
+        return {'success': False, 'message': str(e)}, 400
 
-    return_dict['success'] = len(status) == 0
-    if len(status) > 0:
-        return_dict['message'] = status
-        return make_response(jsonify(return_dict), 400)
-    return return_dict
+    return _print_result(printer, status)
 
 
-def create_printer_from_request(request: Request):
-    label_size = request.values.get('label_size', 'tze24')
+def _print_result(printer, status):
+    result = {'success': not status, 'warnings': printer.warnings}
+    if status:
+        result['message'] = status
+    return result, 400 if status else 200
+
+
+def create_printer_from_request(values):
+    label_size = _get_label_spec(values.get('label_size')).identifier
     # Allow overriding the device specifier via the request (frontend selection)
-    device = request.values.get('printer') or current_app.config['PRINTER_PRINTER']
+    device = values.get('printer') or current_app.config['PRINTER_PRINTER']
     # Allow overriding model via request if provided
-    model = request.values.get('model') or current_app.config['PRINTER_MODEL']
+    model = values.get('model') or current_app.config['PRINTER_MODEL']
     return PrinterQueue(
         model=model,
         device_specifier=device,
@@ -467,76 +433,63 @@ def spreadsheet_rows(data) -> list[list[str]] | None:
     return rows
 
 
-def label_print_count(data) -> int:
-    rows = spreadsheet_rows(data)
-    count = len(rows) if rows is not None else int(data.get('print_count', 1))
+def label_print_count(count, rows) -> int:
+    count = len(rows) if rows is not None else int(count)
     if count < 1:
         raise ValueError("print_count must be greater than 0")
     return count
 
 
-def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
-    label_size = d.get('label_size', "tze24")
-    if not any(label.identifier == label_size for label in ALL_LABELS):
-        raise LookupError("Unknown label_size")
-    context = {
-        'label_size': label_size,
-        'print_type': d.get('print_type', 'text'),
-        'label_orientation': d.get('orientation', 'standard'),
-        'margin_top': int(d.get('margin_top', 12)),
-        'margin_bottom': int(d.get('margin_bottom', 12)),
-        'margin_left': int(d.get('margin_left', 20)),
-        'margin_right': int(d.get('margin_right', 20)),
+def _queue_labels(printer, options, rows, print_count, cut_once, high_res, chain_print, half_cut, no_cut):
+    for i in range(print_count):
+        label = SimpleLabel(**options, counter=i, spreadsheet_row=rows[i] if rows is not None else None)
+        cut = not cut_once or i == print_count - 1
+        printer.add_label_to_queue(label, cut, high_res, chain_print, half_cut=half_cut, no_cut=no_cut)
+
+
+def _label_options_from_request(d: dict, files: dict | None = None):
+    files = files or {}
+    label_spec = _get_label_spec(d.get('label_size'))
+    print_type = d.get('print_type', 'text')
+    image_mode = d.get('image_mode', 'grayscale')
+    image_bw_threshold = int(d.get('image_bw_threshold', 70))
+    high_res = int(d.get('high_res', 0)) != 0
+    label_orientation = LabelOrientation.ROTATED if d.get('orientation', 'standard') == 'rotated' else LabelOrientation.STANDARD
+    options = {
+        'label_orientation': label_orientation,
+        'label_margin': (int(d.get('margin_left', 20)), int(d.get('margin_right', 20)), int(d.get('margin_top', 12)), int(d.get('margin_bottom', 12))),
         'border_thickness': int(d.get('border_thickness', 1)),
         'border_roundness': int(d.get('border_roundness', 0)),
-        'border_distanceX': int(d.get('border_distance_x', 0)),
-        'border_distanceY': int(d.get('border_distance_y', 0)),
-        'border_color': 'black',
+        'border_distance': (int(d.get('border_distance_x', 0)), int(d.get('border_distance_y', 0))),
         'text': json.loads(d.get('text', '[]')),
         'barcode_type': d.get('barcode_type', 'QR'),
-        'qrcode_size': int(d.get('qrcode_size', 10)),
-        'qrcode_correction': d.get('qrcode_correction', 'L'),
+        'qr_size': int(d.get('qrcode_size', 10)),
+        'qr_correction': d.get('qrcode_correction', 'L'),
         'code_fit': int(d.get('code_fit', 1)) > 0,
-        'image_mode': d.get('image_mode', "grayscale"),
-        'image_bw_threshold': int(d.get('image_bw_threshold', 70)),
         'image_fit': int(d.get('image_fit', 1)) > 0,
         'image_crop': int(d.get('image_crop', 0)) > 0,
         'image_scaling_factor': float(d.get('image_scaling_factor', 100.0)),
         'image_rotation': int(d.get('image_rotation', 0)),
         'timestamp': int(d.get('timestamp', 0)),
-        'high_res': int(d.get('high_res', 0)) != 0,
         'code_text': d.get('code_text', '').strip(),
     }
 
     def get_uploaded_image(image: FileStorage) -> Image.Image:
+        image.stream.seek(0)
         name, ext = os.path.splitext(image.filename)
         ext = ext.lower()
 
-        # Try to open as PDF
         if ext == '.pdf':
             image = pdffile_to_image(image, DEFAULT_DPI)
-            if context['image_mode'] == 'grayscale':
-                return convert_image_to_grayscale(image)
-            else:
-                return convert_image_to_bw(image, context['image_bw_threshold'])
-
-        # Try to read with PIL
-        exts = Image.registered_extensions()
-        supported_extensions = {ex for ex, f in exts.items() if f in Image.OPEN}
-        current_app.logger.info(f"Supported image extensions: {supported_extensions}")
-        if ext in supported_extensions:
+        else:
+            exts = Image.registered_extensions()
+            supported_extensions = {ex for ex, f in exts.items() if f in Image.OPEN}
+            current_app.logger.info(f"Supported image extensions: {supported_extensions}")
+            if ext not in supported_extensions:
+                raise ValueError("Unsupported file type")
             image = imgfile_to_image(image)
-            if context['image_mode'] == 'grayscale':
-                return convert_image_to_grayscale(image)
-            elif context['image_mode'] == 'colored':
-                return image
-            else:
-                return convert_image_to_bw(image, context['image_bw_threshold'])
+        return _convert_image(image, image_mode, image_bw_threshold)
 
-        raise ValueError("Unsupported file type")
-
-    print_type = context['print_type']
-    image_mode = context['image_mode']
     if print_type == 'text':
         label_content = LabelContent.TEXT_ONLY
     elif print_type == 'qrcode':
@@ -550,15 +503,20 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
     else:
         label_content = LabelContent.IMAGE_BW
 
-    label_orientation = LabelOrientation.ROTATED if context['label_orientation'] == 'rotated' else LabelOrientation.STANDARD
-    width, height = _get_label_dimensions(context['label_size'], context['high_res'])
-    if height > width:
-        width, height = height, width
-    if label_orientation == LabelOrientation.STANDARD:
-        height, width = width, height
+    scale = 2 if high_res else 1
+    printable = label_spec.dots_printable * scale
+    width, height = (0, printable) if label_orientation == LabelOrientation.STANDARD else (printable, 0)
+    length_mm = 0 if int(d.get('label_length_auto', 0)) else float(d.get('label_length') or 0)
+    if not math.isfinite(length_mm) or length_mm < 0:
+        raise ValueError('Label length must be a finite, non-negative number.')
+    fixed_length = 0
+    if length_mm:
+        fixed_length = round(length_mm * DEFAULT_DPI * scale / 25.4) - 2 * label_spec.feed_margin * scale
+        if fixed_length < 1:
+            raise ValueError('Label length must be greater than the printer margins (approximately 4 mm).')
 
     # For each line in text, we determine and add the font path
-    for line in context['text']:
+    for line in options['text']:
         if 'size' not in line or not str(line['size']).isdigit():
             current_app.logger.error(line)
             raise ValueError("Font size is required")
@@ -567,9 +525,6 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
         line['path'] = FONTS.get_path(line.get('font', ''))
         if len(line.get('text', '')) > 10_000:
             raise ValueError("Text is too long")
-
-    fore_color = (0, 0, 0)
-    border_color = (0, 0, 0)
 
     uploaded = files.get('image', None)
     image = None
@@ -588,57 +543,12 @@ def create_label_from_request(d: dict = {}, files: dict = {}, counter: int = 0):
                     # Open image file with PIL
                     with open(image_path, 'rb') as fh:
                         pil_img = imgfile_to_image(fh)
-                    # Apply same conversions as get_uploaded_image would
-                    if context['image_mode'] == 'grayscale':
-                        image = convert_image_to_grayscale(pil_img)
-                    elif context['image_mode'] == 'colored':
-                        image = pil_img
-                    else:
-                        image = convert_image_to_bw(pil_img, context['image_bw_threshold'])
+                    image = _convert_image(pil_img, image_mode, image_bw_threshold)
             except Exception:
                 current_app.logger.exception('Failed to load repository image')
 
-    rows = spreadsheet_rows(d)
-    return SimpleLabel(
-        width=width,
-        height=height,
-        label_content=label_content,
-        label_orientation=label_orientation,
-        label_margin=(
-            int(context['margin_left']),
-            int(context['margin_right']),
-            int(context['margin_top']),
-            int(context['margin_bottom'])
-        ),
-        fore_color=fore_color,
-        text=context['text'],
-        barcode_type=context['barcode_type'],
-        qr_size=context['qrcode_size'],
-        qr_correction=context['qrcode_correction'],
-        code_fit=context['code_fit'],
-        image=image,
-        image_fit=context['image_fit'],
-        image_crop=context['image_crop'],
-        image_scaling_factor=context['image_scaling_factor'],
-        image_rotation=context['image_rotation'],
-        border_thickness=context['border_thickness'],
-        border_roundness=context['border_roundness'],
-        border_distance=(context['border_distanceX'], context['border_distanceY']),
-        border_color=border_color,
-        timestamp=context['timestamp'],
-        counter=counter,
-        code_text=context['code_text'],
-        spreadsheet_row=rows[counter] if rows is not None else None,
-    )
-
-
-def _get_label_dimensions(label_size: str, high_res: bool = False):
-    width = next((label.dots_printable for label in ALL_LABELS if label.identifier == label_size), None)
-    if width is None:
-        raise LookupError("Unknown label_size")
-    if high_res:
-        return (2 * width, 0)
-    return (width, 0)
+    options.update(width=width, height=height, fixed_length=fixed_length, label_content=label_content, image=image)
+    return options
 
 
 def _convert_image(img: Image.Image, image_mode: str, bw_threshold: int = 70) -> Image.Image:
@@ -648,27 +558,6 @@ def _convert_image(img: Image.Image, image_mode: str, bw_threshold: int = 70) ->
         return img
     else:
         return convert_image_to_bw(img, bw_threshold)
-
-
-def _scale_image_to_label(img: Image.Image, label_size: str, orientation: str,
-                          high_res: bool = False) -> Image.Image:
-    width, height = _get_label_dimensions(label_size, high_res)
-    # Normalize: width = printable width, height = printable height
-    if height > width:
-        width, height = height, width
-    if orientation == 'standard':
-        height, width = width, height
-
-    img_width, img_height = img.size
-    # P-touch tapes are endless: scale to fill the fixed dimension and let
-    # the tape length vary.
-    if orientation == 'standard':
-        scale = height / img_height
-    else:
-        scale = width / img_width
-
-    new_size = (max(1, int(img_width * scale)), max(1, int(img_height * scale)))
-    return img.resize(new_size, Image.Resampling.LANCZOS)
 
 
 @bp.route('/api/webhook/print', methods=['POST'])
@@ -699,7 +588,7 @@ def webhook_print():
 
     Multipart form-data:
         - images: one or more image files (field name "images")
-        - label_size: label size identifier (default: from config)
+        - label_size: label size identifier (required)
         - orientation: "standard" or "rotated" (default: from config)
         - image_mode: "grayscale", "bw", or "colored" (default: from config)
         - bw_threshold: black/white threshold 0-255 (default: from config)
@@ -742,7 +631,7 @@ def webhook_print():
         def _param(key, default):
             return request.values.get(key) or jdata.get(key) or default
 
-        label_size = _param('label_size', current_app.config['LABEL_DEFAULT_SIZE'])
+        label_size = _param('label_size', None)
         orientation = _param('orientation', current_app.config['LABEL_DEFAULT_ORIENTATION'])
         image_mode = _param('image_mode', current_app.config['IMAGE_DEFAULT_MODE'])
         bw_threshold = int(_param('bw_threshold', current_app.config['IMAGE_DEFAULT_BW_THRESHOLD']))
@@ -750,9 +639,7 @@ def webhook_print():
         device = _param('printer', current_app.config['PRINTER_PRINTER'])
         model = _param('model', current_app.config['PRINTER_MODEL'])
 
-        # Validate label_size
-        if not any(label.identifier == label_size for label in ALL_LABELS):
-            return make_response(jsonify({'success': False, 'message': f'Unknown label_size: {label_size}'}), 400)
+        label_spec = _get_label_spec(label_size)
 
         # Determine label content type from image_mode
         if image_mode == 'grayscale':
@@ -763,12 +650,13 @@ def webhook_print():
             label_content = LabelContent.IMAGE_BW
 
         label_orientation = LabelOrientation.ROTATED if orientation == 'rotated' else LabelOrientation.STANDARD
-        width, height = _get_label_dimensions(label_size, high_res)
-        if height > width:
-            width, height = height, width
-        if label_orientation == LabelOrientation.STANDARD:
-            height, width = width, height
+        printable = label_spec.dots_printable * (2 if high_res else 1)
+        width, height = (0, printable) if label_orientation == LabelOrientation.STANDARD else (printable, 0)
 
+    except LookupError:
+        return make_response(jsonify({'success': False, 'message': f'Unknown label_size: {label_size}'}), 400)
+    except ValueError as e:
+        return make_response(jsonify({'success': False, 'message': str(e)}), 400)
     except Exception as e:
         current_app.logger.exception(e)
         return make_response(jsonify({'success': False, 'message': 'Invalid request parameters'}), 400)
@@ -778,31 +666,29 @@ def webhook_print():
     try:
         # Check for multipart file uploads first
         uploaded_files = request.files.getlist('images')
-        if uploaded_files:
-            for f in uploaded_files:
-                if not f.filename:
-                    continue
-                _, ext = os.path.splitext(f.filename)
-                ext = ext.lower()
-                if ext == '.pdf':
-                    img = pdffile_to_image(f, HIGH_RES_DPI if high_res else DEFAULT_DPI)
-                else:
-                    img = imgfile_to_image(f)
-                pil_images.append(img)
+        for f in uploaded_files:
+            if not f.filename:
+                continue
+            _, ext = os.path.splitext(f.filename)
+            ext = ext.lower()
+            if ext == '.pdf':
+                img = pdffile_to_image(f, HIGH_RES_DPI if high_res else DEFAULT_DPI)
+            else:
+                img = imgfile_to_image(f)
+            pil_images.append(img)
 
         # Check for JSON payload with base64 images
-        if not pil_images:
-            if jdata and isinstance(jdata.get('images'), list):
-                for entry in jdata['images']:
-                    if isinstance(entry, str):
-                        # Plain base64 string
-                        img_bytes = base64.b64decode(entry)
-                    elif isinstance(entry, dict) and 'data' in entry:
-                        img_bytes = base64.b64decode(entry['data'])
-                    else:
-                        continue
-                    img = Image.open(BytesIO(img_bytes))
-                    pil_images.append(img)
+        if not pil_images and isinstance(jdata.get('images'), list):
+            for entry in jdata['images']:
+                if isinstance(entry, str):
+                    # Plain base64 string
+                    img_bytes = base64.b64decode(entry)
+                elif isinstance(entry, dict) and 'data' in entry:
+                    img_bytes = base64.b64decode(entry['data'])
+                else:
+                    continue
+                img = Image.open(BytesIO(img_bytes))
+                pil_images.append(img)
 
     except Exception as e:
         current_app.logger.exception(e)
@@ -816,7 +702,6 @@ def webhook_print():
         printer = PrinterQueue(model=model, device_specifier=device, label_size=label_size)
         for img in pil_images:
             img = _convert_image(img, image_mode, bw_threshold)
-            img = _scale_image_to_label(img, label_size, orientation, high_res)
             label = SimpleLabel(
                 width=width,
                 height=height,
