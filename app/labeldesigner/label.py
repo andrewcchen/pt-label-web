@@ -1,5 +1,4 @@
 from .enums import LabelContent, LabelOrientation
-import os
 import uuid
 from qrcode import QRCode, constants
 from PIL import Image, ImageDraw, ImageFont, ImageChops
@@ -94,6 +93,7 @@ class SimpleLabel:
         self._border_color = border_color
         self._counter = counter
         self._timestamp = timestamp
+        self.input_code_text = code_text
         self._code_text = code_text
 
     @property
@@ -160,9 +160,10 @@ class SimpleLabel:
         self._label_orientation = value
 
     def process_templates(self) -> None:
-        """Process and replace templates in the text lines."""
+        """Process templates in label text and code content."""
         self.text = copy.deepcopy(self.input_text)
-        for line in self.text:
+        code_line = {'text': self.input_code_text}
+        for line in self.text + [code_line]:
             text_val = line.get('text', '')
             if len(text_val) > WARNING_TEXT_LENGTH:
                 logger.warning(
@@ -193,12 +194,6 @@ class SimpleLabel:
                 ui = uuid.UUID(int=random.getrandbits(128))
                 text_val = text_val.replace("{{short-uuid}}", str(ui)[:8])
 
-            # Replace {{env:<var>}} with the value of the environment variable var
-            def env_replacer(match):
-                var_name = match.group(1)
-                return os.getenv(var_name, "")
-            text_val = re.sub(r"\{\{env:([^}]+)\}\}", env_replacer, text_val)
-
             # Replace {{random[:<len>][:shift]}} with random string of optional
             # length <len> and shifting instruction. ":s" is accepted as
             # shorthand for ":shift"
@@ -210,6 +205,7 @@ class SimpleLabel:
             text_val = re.sub(r"\{\{random(?:\:(\d+))?(?:\:(s(hift)?))?\}\}", random_replacer, text_val)
 
             line['text'] = text_val
+        self._code_text = code_line['text']
 
     def generate(self, rotate: bool = False):
         # Process possible templates in the text

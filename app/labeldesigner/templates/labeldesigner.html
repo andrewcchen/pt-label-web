@@ -373,7 +373,7 @@
                 </div>
                 <div id="templateInfoBox" class="collapse">
                     <div class="card-body pt-2 pb-2">
-                        <strong>Templates</strong> allow you to insert dynamic content into your label text. Supported
+                        <strong>Templates</strong> allow you to insert dynamic content into your label text and code content. Supported
                         templates:<br>
                         <ul style="margin-bottom: 0.5em;">
                             <li><code>{{'{{datetime:<format>}}'}}</code> — Inserts the current date and time when printing.
@@ -384,7 +384,6 @@
                             </li>
                             <li><code>{{'{{uuid'}}}}</code> — Inserts a random UUID (Universally Unique Identifier).</li>
                             <li><code>{{'{{short-uuid'}}}}</code> — Inserts a shortened version of a UUID.</li>
-                            <li><code>{{'{{env:<var>}}'}}</code> — Inserts the value of the environment variable <code><var></code>.</li>
                             <li><code>{{'{{random[:<len>][:shift]}}'}}</code> — Inserts a random string of optional length <code><len></code>
                                 (defaulting to 64). The optional <code>shift</code> parameter can be used to shift the random string around to fill gaps.</li>
                         </ul>
