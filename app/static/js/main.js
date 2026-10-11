@@ -204,7 +204,11 @@ function getModelFromSelectedPrinter(printerSelect) {
     return null;
 }
 
-function formData(cut_once = false) {
+function updateCutOptions() {
+    $('#cut_once, #half_cut, #chain_print').prop('disabled', $('#no_cut').is(':checked'));
+}
+
+function formData() {
     data = {
         text: JSON.stringify(fontSettingsPerLine),
         label_size: $('#label_size').val(),
@@ -223,7 +227,9 @@ function formData(cut_once = false) {
         image_crop: $('#image_crop').is(':checked') ? 1 : 0,
         print_count: parseInt($('#print_count').val(), 10) || 0,
         log_level: $('#log_level').val(),
-        cut_once: cut_once ? 1 : 0,
+        cut_once: $('#cut_once').is(':checked') ? 1 : 0,
+        half_cut: $('#half_cut').is(':checked') ? 1 : 0,
+        no_cut: $('#no_cut').is(':checked') ? 1 : 0,
         chain_print: $('#chain_print').is(':checked') ? 1 : 0,
         border_thickness: parseInt($('#border_thickness').val(), 10) || 0,
         border_roundness: parseInt($('#border_roundness').val(), 10) || 0,
@@ -280,7 +286,7 @@ window.addEventListener('resize', function () {
 
 var lastPreviewData = null;
 var pendingDropZoneData = null;
-function gen_label(preview = true, cut_once = false) {
+function gen_label(preview = true) {
     // Check label against installed label in the printer
     updatePrinterStatus();
 
@@ -297,7 +303,7 @@ function gen_label(preview = true, cut_once = false) {
     let type = preview ? 'preview' : 'printing';
 
     // Capture the request before asynchronous image processing starts.
-    const data = formData(cut_once);
+    const data = formData();
 
     // Process image upload
     if ($('input[name=print_type]:checked').val() == 'image') {
@@ -371,8 +377,8 @@ function updateAutoFontSizes(header) {
     }
 }
 
-function print(cut_once = false) {
-    gen_label(false, cut_once);
+function print() {
+    gen_label(false);
 }
 
 function preview() {
@@ -491,7 +497,7 @@ new Dropzone("#image-dropzone", {
 
     sending: function (file, xhr, data) {
         // append all parameters to the request
-        let fd = pendingDropZoneData || formData(false);
+        let fd = pendingDropZoneData || formData();
 
         $.each(fd, function (key, value) {
             data.append(key, value);
@@ -783,6 +789,8 @@ function restoreAllSettingsFromLocalStorage() {
             console.log(key + ": " + data[key]);
         }
     });
+
+    updateCutOptions();
 
     // Restore fontSettingsPerLine if available
     if (data['fontSettingsPerLine'] && window.fontSettingsPerLine) {
@@ -1153,6 +1161,8 @@ function init2() {
     set_all_inputs_default();
     restoreAllSettingsFromLocalStorage();
     toggleFontSize();
+    updateCutOptions();
+    $('#no_cut').on('change', updateCutOptions);
 
     // Save on change
     $(document).on('change input', 'input, select, textarea', function () {

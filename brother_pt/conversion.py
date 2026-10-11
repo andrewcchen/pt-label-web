@@ -90,6 +90,7 @@ def _rasterize_images(qlr: BrotherQLRaster, images, label, **kwargs):
         qlr.pquality = int(hq)
         qlr.add_media_and_quality(im.size[1])
         qlr.add_autocut(cut)
+        qlr.half_cut = options.get('half_cut', False)
         qlr.hires = hires
         qlr.cut_at_end = cut
         qlr.no_chain_printing = not chain_print

@@ -324,11 +324,13 @@ def repo_print():
         label_size = data.get('label_size') or current_app.config['LABEL_DEFAULT_SIZE']
         printer = PrinterQueue(model=model, device_specifier=device, label_size=label_size)
 
-        # Determine printing options (print_count, cut_once, high_res)
+        # Determine printing options
         print_count = int(request.values.get('print_count') or data.get('print_count') or 1)
         if print_count < 1:
             raise ValueError("print_count must be greater than 0")
         cut_once = int(request.values.get('cut_once') or data.get('cut_once') or 0) == 1
+        half_cut = int(request.values.get('half_cut', data.get('half_cut', 0))) == 1
+        no_cut = int(request.values.get('no_cut', data.get('no_cut', 0))) == 1
         chain_print = int(request.values.get('chain_print') or data.get('chain_print') or 0) == 1
         high_res = int(request.values.get('high_res') or data.get('high_res') or 0) != 0
     except Exception as e:
@@ -339,8 +341,8 @@ def repo_print():
     try:
         for i in range(print_count):
             label = create_label_from_request(data, {}, i)
-            cut = not cut_once or (cut_once and i == print_count - 1)
-            printer.add_label_to_queue(label, cut, high_res, chain_print)
+            cut = not cut_once or i == print_count - 1
+            printer.add_label_to_queue(label, cut, high_res, chain_print, half_cut=half_cut, no_cut=no_cut)
         status = printer.process_queue()
     except Exception as e:
         current_app.logger.exception(e)
@@ -413,6 +415,8 @@ def print_label():
         if print_count < 1:
             raise ValueError("print_count must be greater than 0")
         cut_once = int(request.values.get('cut_once', 0)) == 1
+        half_cut = int(request.values.get('half_cut', 0)) == 1
+        no_cut = int(request.values.get('no_cut', 0)) == 1
         chain_print = int(request.values.get('chain_print', 0)) == 1
         high_res = int(request.values.get('high_res', 0)) != 0
     except Exception as e:
@@ -426,11 +430,8 @@ def print_label():
             values = request.values.to_dict(flat=True)
             files = request.files.to_dict(flat=True)
             label = create_label_from_request(values, files, i)
-            # Cut only if we
-            # - always cut, or
-            # - we cut only once and this is the last label to be generated
-            cut = not cut_once or (cut_once and i == print_count - 1)
-            printer.add_label_to_queue(label, cut, high_res, chain_print)
+            cut = not cut_once or i == print_count - 1
+            printer.add_label_to_queue(label, cut, high_res, chain_print, half_cut=half_cut, no_cut=no_cut)
         status = printer.process_queue()
     except Exception as e:
         return_dict['message'] = str(e)
