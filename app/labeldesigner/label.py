@@ -224,6 +224,8 @@ class SimpleLabel:
                 img = self._generate_datamatrix()
             else:
                 img = self._generate_barcode()
+                if self._label_orientation == LabelOrientation.ROTATED:
+                    img = img.transpose(Image.Transpose.ROTATE_90)
         elif self._label_content in (LabelContent.IMAGE_BW, LabelContent.IMAGE_GRAYSCALE, LabelContent.IMAGE_COLORED):
             img = self._image
         else:
@@ -248,8 +250,7 @@ class SimpleLabel:
                         raise ValueError('Code is too dense to fit the label at one pixel per cell.')
                     new_size = (cells * code_cell_size, cells * code_cell_size)
                 else:
-                    scale = available / fixed_size
-                    new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+                    new_size = (available, img.height) if self._label_orientation == LabelOrientation.ROTATED else (img.width, available)
                 img = img.resize(new_size, Image.Resampling.NEAREST)
             img_width, img_height = img.size
             if is_matrix_code:
@@ -441,7 +442,7 @@ class SimpleLabel:
             # Take value from the first line of text
             value = self.text[0].get('text', '') if self.text and self.text[0].get('text', '') else ''
         my_barcode = barcode_generator(value, writer=ImageWriter())
-        return my_barcode.render()
+        return my_barcode.render(writer_options={'write_text': False})
 
     def _generate_datamatrix(self):
         text = self._code_text or "\n".join(line.get('text', '') for line in self.text)

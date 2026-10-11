@@ -70,3 +70,35 @@ def test_code_fit_rejects_code_too_dense_for_label():
     label = SimpleLabel(text=[], height=10, label_content=LabelContent.QRCODE_ONLY, code_text='hello', code_fit=True)
     with pytest.raises(ValueError, match='too dense'):
         label.generate()
+
+
+@pytest.mark.parametrize('orientation', [LabelOrientation.STANDARD, LabelOrientation.ROTATED])
+@pytest.mark.parametrize('size', [52, 76, 128])
+def test_linear_barcode_fit_preserves_bar_widths_and_decodes(orientation, size):
+    label = SimpleLabel(
+        width=size,
+        height=size,
+        text=[],
+        label_content=LabelContent.QRCODE_ONLY,
+        label_orientation=orientation,
+        label_margin=(8, 8, 8, 8),
+        barcode_type='CODE128',
+        code_text='1234567890',
+        code_fit=True,
+    )
+    original = label._generate_barcode()
+    bitmap = render_label_bitmap(label)
+    length = bitmap.height if orientation == LabelOrientation.ROTATED else bitmap.width
+    assert length == original.width + 16
+    result = zxingcpp.read_barcode(bitmap)
+    assert result is not None
+    assert result.text == '1234567890'
+
+
+def test_linear_barcode_has_no_caption():
+    label = SimpleLabel(text=[], barcode_type='CODE128', code_text='1234567890')
+    image = label._generate_barcode().convert('L')
+    bounds = image.point(lambda value: 255 - value).getbbox()
+    bars = image.crop(bounds)
+    row = bars.crop((0, 0, bars.width, 1)).tobytes()
+    assert bars.tobytes() == row * bars.height
